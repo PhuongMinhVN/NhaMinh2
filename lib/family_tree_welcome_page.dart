@@ -406,22 +406,93 @@ class FamilyTreeWelcomePage extends StatelessWidget {
           return;
        }
 
-       // 3. Confirm Join
-       if (!context.mounted) return;
-       final confirm = await showDialog<bool>(
-         context: context,
-         builder: (ctx) => AlertDialog(
-           title: const Text('Tham gia Gia phả'),
-           content: Text('Bạn có muốn tham gia vào "${clan['name']}" không?'),
-           actions: [
-             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Hủy')),
-             ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Tham Gia')),
-           ],
-         ),
-       );
+       // 3. Check for Unclaimed Members (profile_id is null)
+       // Fetch all and filter locally to avoid potential 'is_' operator issues on UUID columns
+       final allMembers = await Supabase.instance.client
+           .from('family_members')
+           .select()
+           .eq('clan_id', clanId)
+           .order('full_name', ascending: true);
+           
+       final unclaimedRes = (allMembers as List).where((m) => m['profile_id'] == null).toList();
+       
+       int? claimMemberId;
+       bool createNew = true;
 
-       if (confirm == true) {
-          // 4. Add Member
+       if (unclaimedRes.isNotEmpty && context.mounted) {
+          final List<dynamic> unclaimed = unclaimedRes as List<dynamic>;
+          
+          // Show Selection Dialog
+          final selected = await showDialog<dynamic>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Bạn có phải là người này?'),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                     const Text('Chúng tôi thấy có các thành viên chưa liên kết tài khoản. Nếu bạn là một trong số họ, hãy chọn để kết nối ngay.', style: TextStyle(fontSize: 13, color: Colors.grey)),
+                     const SizedBox(height: 12),
+                     Flexible(
+                       child: ListView.separated(
+                         shrinkWrap: true,
+                         itemCount: unclaimed.length + 1,
+                         separatorBuilder: (_,__) => const Divider(height: 1),
+                         itemBuilder: (context, index) {
+                            if (index == unclaimed.length) {
+                               return ListTile(
+                                 leading: const CircleAvatar(backgroundColor: Colors.grey, child: Icon(Icons.person_add, color: Colors.white)),
+                                 title: const Text('Tôi là thành viên mới', style: TextStyle(fontWeight: FontWeight.bold)),
+                                 subtitle: const Text('Tạo hồ sơ mới hoàn toàn'),
+                                 onTap: () => Navigator.pop(ctx, 'NEW'),
+                               );
+                            }
+                            final m = unclaimed[index];
+                            return ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor: m['gender'] == 'male' ? Colors.blue.shade100 : Colors.pink.shade100,
+                                child: Icon(m['gender'] == 'male' ? Icons.male : Icons.female, color: m['gender'] == 'male' ? Colors.blue : Colors.pink),
+                              ),
+                              title: Text(m['full_name'] ?? 'Không tên'),
+                              subtitle: Text(m['title'] ?? 'Chưa có danh xưng'),
+                              onTap: () => Navigator.pop(ctx, m['id']),
+                            );
+                         },
+                       ),
+                     )
+                  ],
+                ),
+              ),
+            ),
+          );
+
+          if (selected == null) return; // Cancelled
+          if (selected != 'NEW') {
+             claimMemberId = selected as int;
+             createNew = false;
+          }
+       } else {
+          // No unclaimed members, simply ask to confirm join as new
+          if (!context.mounted) return;
+          final confirm = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Tham gia Gia phả'),
+              content: Text('Bạn có muốn tham gia vào "${clan['name']}" không?'),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Hủy')),
+                ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Tham Gia')),
+              ],
+            ),
+          );
+          if (confirm != true) return;
+       }
+
+       // 4. Execute Join
+       if (createNew) {
+          // Add Member
           final profile = await Supabase.instance.client.from('profiles').select().eq('id', user.id).single();
           String userName = profile['full_name'] ?? 'Thành viên mới';
 
@@ -433,16 +504,26 @@ class FamilyTreeWelcomePage extends StatelessWidget {
              'gender': 'male', 
              'title': 'Thành viên mới',
           });
+          
+          if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Đã tham gia "${clan['name']}" thành công!')));
 
-          if (context.mounted) {
-             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Đã tham gia "${clan['name']}" thành công!')));
-             Navigator.push(context, MaterialPageRoute(builder: (_) => ClanTreePage(
-                clanId: clanId, 
-                clanName: clan['name'],
-                ownerId: clan['owner_id'],
-                clanType: clan['type'], // Updated to pass Type
-             )));
-          }
+       } else if (claimMemberId != null) {
+          // Claim Existing Member
+          await Supabase.instance.client.from('family_members').update({
+             'profile_id': user.id,
+             // Optional: Update name if missing? No, keep existing structure preference.
+          }).eq('id', claimMemberId);
+          
+          if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã kết nối tài khoản thành công!')));
+       }
+
+       if (context.mounted) {
+            Navigator.push(context, MaterialPageRoute(builder: (_) => ClanTreePage(
+            clanId: clanId, 
+            clanName: clan['name'],
+            ownerId: clan['owner_id'],
+            clanType: clan['type'], 
+            )));
        }
 
      } catch (e) {
