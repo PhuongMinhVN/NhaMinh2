@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:image_picker/image_picker.dart';
 import '../repositories/clan_repository.dart';
 import '../models/clan.dart';
 
@@ -64,6 +65,31 @@ class _ScanQrPageState extends State<ScanQrPage> {
          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: $e')));
          _resumeScanning();
       }
+    }
+  }
+
+  Future<void> _pickImageFromGallery() async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+
+    if (image == null) return;
+
+    // Use MobileScannerController to analyze the image file
+    // For mobile_scanner > 7.0.0, analyzeImage returns BarcodeCapture?
+    final BarcodeCapture? capture = await _controller.analyzeImage(image.path);
+
+    if (capture != null && capture.barcodes.isNotEmpty) {
+       final code = capture.barcodes.first.rawValue;
+       if (code != null) {
+          await _handleQrCode(code);
+          return;
+       }
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không tìm thấy mã QR trong ảnh này.')),
+      );
     }
   }
 
@@ -137,7 +163,19 @@ class _ScanQrPageState extends State<ScanQrPage> {
     );
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Quét mã QR Dòng Họ')),
+      appBar: AppBar(
+        title: const Text('Quét mã QR Dòng Họ'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.image),
+            tooltip: 'Chọn ảnh từ thư viện',
+            onPressed: () {
+               _controller.stop();
+               _pickImageFromGallery();
+            },
+          ),
+        ],
+      ),
       body: Stack(
         children: [
           MobileScanner(

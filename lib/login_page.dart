@@ -18,6 +18,7 @@ class _LoginPageState extends State<LoginPage> {
   final _passwordController = TextEditingController();
   bool _isObscure = true;
   bool _isLoading = false;
+  bool _rememberMe = true; // Default to true
 
   Future<void> _signIn() async {
     final input = _identifierController.text.trim();
@@ -338,8 +339,24 @@ class _LoginPageState extends State<LoginPage> {
                 isObscure: _isObscure,
                 onToggleObscure: () => setState(() => _isObscure = !_isObscure),
               ).animate().fadeIn(delay: 400.ms).slideX(),
-
-              const SizedBox(height: 12),
+              
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                   Transform.scale(
+                     scale: 0.9,
+                     child: Checkbox(
+                      value: _rememberMe,
+                      activeColor: Theme.of(context).primaryColor,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      visualDensity: VisualDensity.compact,
+                      onChanged: (val) => setState(() => _rememberMe = val ?? true),
+                     ),
+                   ),
+                   Text('Ghi nhớ đăng nhập vô thời hạn', style: GoogleFonts.inter(fontSize: 13, color: Colors.brown.shade800)),
+                ],
+              ),
+              const SizedBox(height: 4),
               
               Align(
                 alignment: Alignment.centerRight,

@@ -9,7 +9,13 @@ import 'models/clan_event.dart';
 import 'repositories/event_repository.dart';
 import 'clan_events_page.dart';
 import 'create_genealogy_wizard.dart'; 
-import 'family_tree_welcome_page.dart'; // Thay thế import cũ
+import 'clan_events_page.dart';
+import 'create_genealogy_wizard.dart'; 
+import 'family_tree_welcome_page.dart';
+import 'widgets/event_list_widget.dart';
+import 'pages/events/add_event_page.dart';
+import 'scan_qr_page.dart';
+import 'notifications_page.dart';
 
 
 class DashboardPage extends StatefulWidget {
@@ -154,7 +160,9 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
           IconButton(
             icon: const Icon(Icons.notifications_outlined),
-            onPressed: () {},
+            onPressed: () {
+               Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsPage()));
+            },
             tooltip: 'Thông báo',
           ),
           IconButton(
@@ -237,8 +245,8 @@ class _DashboardPageState extends State<DashboardPage> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       shadowColor: Colors.black12,
       child: Container(
-        height: 500, 
-        padding: const EdgeInsets.all(24),
+        height: 400, // Reduced height as EventList is horizontal
+        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
           color: Colors.white,
@@ -255,7 +263,7 @@ class _DashboardPageState extends State<DashboardPage> {
                     Icon(Icons.event_note, color: Theme.of(context).primaryColor, size: 28),
                     const SizedBox(width: 12),
                     Text(
-                      'Việc Dòng Họ',
+                      'Sự Kiện & Giỗ Chạp',
                       style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         fontFamily: GoogleFonts.playfairDisplay().fontFamily,
                         fontWeight: FontWeight.bold,
@@ -264,57 +272,33 @@ class _DashboardPageState extends State<DashboardPage> {
                     ),
                   ],
                 ),
-                TextButton(
-                  onPressed: () {
-                     Navigator.push(context, MaterialPageRoute(builder: (_) => const ClanEventsPage()));
-                  },
-                  child: const Text('Xem tất cả'),
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.add_circle_outline),
+                      color: Theme.of(context).primaryColor,
+                      tooltip: 'Thêm sự kiện',
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => const AddEventPage()),
+                        ).then((value) {
+                          if (value == true) {
+                            setState(() {}); // Trigger rebuild/refresh if needed
+                          }
+                        });
+                      },
+                    ),
+                    const SizedBox(width: 4),
+                  ],
                 )
               ],
             ),
             const Divider(height: 32, thickness: 1),
             
-            // Dynamic Content
-            Expanded(
-              child: FutureBuilder<List<ClanEvent>>(
-                future: EventRepository().fetchUpcomingEvents(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  if (snapshot.hasError) {
-                    return Center(child: Text('Lỗi: ${snapshot.error}'));
-                  }
-                  final events = snapshot.data ?? [];
-                  if (events.isEmpty) {
-                    return const Center(
-                      child: Text('Chưa có sự kiện nào sắp tới.', 
-                        style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey))
-                    );
-                  }
-
-                  // Take top 3
-                  final displayEvents = events.take(3).toList();
-
-                  return ListView.builder(
-                    itemCount: displayEvents.length,
-                    itemBuilder: (context, index) {
-                      final event = displayEvents[index];
-                      String dateStr = DateFormat('dd/MM/yyyy').format(event.upcomingDate!);
-                      if (event.isLunar) {
-                         dateStr += ' (ÂL)';
-                      }
-                      
-                      return _buildEventItem(
-                        title: event.title,
-                        date: dateStr,
-                        description: event.description ?? '',
-                        isHighPriority: (event.daysUntil ?? 999) <= 7,
-                      );
-                    },
-                  );
-                },
-              ),
+            // New Event List Widget
+            const Expanded(
+              child: EventListWidget(),
             ),
           ],
         ),
@@ -451,7 +435,26 @@ class _DashboardPageState extends State<DashboardPage> {
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       foregroundColor: Colors.brown,
-                      side: const BorderSide(color: Colors.brown),
+                  ),
+                ),
+                ),
+                const SizedBox(height: 12),
+                
+                // LOGOUT BUTTON
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context); // Close dialog
+                      _signOut(); // Perform sign out
+                    },
+                    icon: const Icon(Icons.logout),
+                    label: const Text('Đăng Xuất'),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      backgroundColor: Colors.grey.shade400,
+                      foregroundColor: Colors.black87,
+                      elevation: 0,
                     ),
                   ),
                 ),
@@ -747,6 +750,19 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget _buildActionButtonsColumn() {
     return Column(
       children: [
+        // FEATURED SCAN QR BUTTON
+        _buildActionButton(
+          title: 'Quét QR Gia Nhập',
+          subtitle: 'Tham gia Dòng họ / Gia đình',
+          icon: Icons.qr_code_scanner_rounded,
+          color: const Color(0xFF673AB7), // Deep Purple
+          textColor: Colors.white,
+          delay: 300,
+          onTap: () {
+             Navigator.push(context, MaterialPageRoute(builder: (_) => const ScanQrPage()));
+          },
+        ),
+        const SizedBox(height: 16),
 
         _buildActionButton(
           title: 'Cây Gia Phả',
@@ -758,16 +774,7 @@ class _DashboardPageState extends State<DashboardPage> {
              Navigator.push(context, MaterialPageRoute(builder: (_) => const FamilyTreeWelcomePage()));
           },
         ),
-        const SizedBox(height: 16),
-        _buildActionButton(
-          title: 'Quỹ Dòng Họ',
-          subtitle: 'Đóng góp và chi tiêu',
-          icon: Icons.savings_rounded,
-          color: const Color(0xFFDAA520), // Golden Rod
-          textColor: Colors.white,
-          delay: 700,
-          onTap: () {},
-        ),
+
 
       ],
     );

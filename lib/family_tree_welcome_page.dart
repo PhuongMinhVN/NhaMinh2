@@ -137,6 +137,19 @@ class FamilyTreeWelcomePage extends StatelessWidget {
   
                     const SizedBox(height: 16),
                     
+                    // CLAN FUNDS BUTTON (Moved from Dashboard)
+                    _buildSecondaryButton(
+                      context,
+                      title: 'Quỹ Dòng Họ',
+                      subtitle: 'Đóng góp và chi tiêu',
+                      icon: Icons.savings_rounded,
+                      onTap: () {
+                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tính năng đang phát triển')));
+                      },
+                    ).animate().fadeIn(delay: 850.ms).slideY(begin: 0.3),
+
+                    const SizedBox(height: 16),
+                    
                     // Khởi tạo gia phả (Replacing Join button)
                     _buildSecondaryButton(
                       context,
