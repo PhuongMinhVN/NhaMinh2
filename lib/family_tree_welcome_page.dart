@@ -490,45 +490,214 @@ class FamilyTreeWelcomePage extends StatelessWidget {
           if (confirm != true) return;
        }
 
-       // 4. Execute Join
+       // 4. Handle "New Member" with Smart Logic
        if (createNew) {
-          // Add Member
-          final profile = await Supabase.instance.client.from('profiles').select().eq('id', user.id).single();
-          String userName = profile['full_name'] ?? 'Thành viên mới';
-
-          await Supabase.instance.client.from('family_members').insert({
-             'clan_id': clanId,
-             'profile_id': user.id,
-             'full_name': userName,
-             'is_alive': true,
-             'gender': 'male', 
-             'title': 'Thành viên mới',
-          });
+          if (!context.mounted) return;
           
-          if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Đã tham gia "${clan['name']}" thành công!')));
-
+          final profile = await Supabase.instance.client.from('profiles').select().eq('id', user.id).single();
+          String defaultName = profile['full_name'] ?? ''; // Allow empty default
+          
+          await showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (ctx) => _buildSmartJoinDialog(
+              ctx, 
+              clanId: clanId, 
+              clanName: clan['name'], 
+              userId: user.id, 
+              defaultName: defaultName,
+              existingMembers: allMembers, // Pass full list for duplicate check/linking
+            ),
+          );
        } else if (claimMemberId != null) {
           // Claim Existing Member
           await Supabase.instance.client.from('family_members').update({
              'profile_id': user.id,
-             // Optional: Update name if missing? No, keep existing structure preference.
           }).eq('id', claimMemberId);
           
           if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã kết nối tài khoản thành công!')));
+          if (context.mounted) _navigateToTree(context, clan);
        }
-
-       if (context.mounted) {
-            Navigator.push(context, MaterialPageRoute(builder: (_) => ClanTreePage(
-            clanId: clanId, 
-            clanName: clan['name'],
-            ownerId: clan['owner_id'],
-            clanType: clan['type'], 
-            )));
-       }
-
      } catch (e) {
         if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi tham gia: $e')));
      }
+  }
+
+  void _navigateToTree(BuildContext context, Map<String, dynamic> clan) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => ClanTreePage(
+            clanId: clan['id'], 
+            clanName: clan['name'],
+            ownerId: clan['owner_id'],
+            clanType: clan['type'], 
+      )));
+  }
+
+  Widget _buildSmartJoinDialog(BuildContext context, {
+    required String clanId, 
+    required String clanName,
+    required String userId,
+    required String defaultName,
+    required List<dynamic> existingMembers,
+  }) {
+    final nameCtrl = TextEditingController(text: defaultName);
+    final formKey = GlobalKey<FormState>();
+    
+    // State for Position Selection
+    int? selectedRelativeId;
+    String relationType = 'child'; // child, spouse
+    
+    return StatefulBuilder(
+      builder: (context, setState) {
+        return AlertDialog(
+          title: const Text('Thông tin gia nhập'),
+          content: SingleChildScrollView(
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Bạn đang gia nhập vào "$clanName". Vui lòng cung cấp thêm thông tin.', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+                  const SizedBox(height: 16),
+                  
+                  TextFormField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(labelText: 'Họ tên của bạn', border: OutlineInputBorder(), prefixIcon: Icon(Icons.person)),
+                    validator: (v) => v!.trim().isEmpty ? 'Vui lòng nhập tên' : null,
+                  ),
+                  const SizedBox(height: 24),
+                  
+                  const Text('Bạn là người thân của ai?', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<int>(
+                    value: selectedRelativeId,
+                    hint: const Text('Chọn người thân (Bố/Mẹ/Vợ/Chồng)'),
+                    isExpanded: true,
+                    items: existingMembers.map<DropdownMenuItem<int>>((m) {
+                       return DropdownMenuItem(
+                         value: m['id'], 
+                         child: Text('${m['full_name']} (${m['gender'] == 'male' ? 'Nam' : 'Nữ'})')
+                       );
+                    }).toList(),
+                    onChanged: (v) => setState(() {
+                       selectedRelativeId = v;
+                    }),
+                    decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 12)),
+                  ),
+                  
+                  if (selectedRelativeId != null) ...[
+                     const SizedBox(height: 12),
+                     DropdownButtonFormField<String>(
+                       value: relationType,
+                       items: const [
+                         DropdownMenuItem(value: 'child', child: Text('Tôi là CON của người này')),
+                         DropdownMenuItem(value: 'spouse', child: Text('Tôi là VỢ/CHỒNG của người này')),
+                       ],
+                       onChanged: (v) => setState(() => relationType = v!),
+                       decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Quan hệ'),
+                     )
+                  ]
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Hủy')),
+            ElevatedButton(
+              onPressed: () async {
+                 if (!formKey.currentState!.validate()) return;
+                 
+                 final inputName = nameCtrl.text.trim();
+                 
+                 // DUPLICATE CHECK
+                 final duplicate = existingMembers.firstWhere(
+                    (m) => m['full_name'].toString().toLowerCase() == inputName.toLowerCase(),
+                    orElse: () => null
+                 );
+                 
+                 if (duplicate != null) {
+                    // Show Duplicate Warning
+                    final action = await showDialog<String>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Trùng tên người đã có'),
+                        content: Text('Hệ thống thấy có thành viên "${duplicate['full_name']}" đã tồn tại. Đây có phải là bạn không?'),
+                        actions: [
+                          TextButton(
+                            child: const Text('Không, tạo mới'),
+                            onPressed: () => Navigator.pop(ctx, 'CREATE'),
+                          ),
+                          ElevatedButton(
+                            child: const Text('Đúng là tôi'),
+                            onPressed: () => Navigator.pop(ctx, 'MERGE'),
+                          ),
+                        ],
+                      ),
+                    );
+                    
+                    if (action == 'MERGE') {
+                       // Link to existing
+                        await Supabase.instance.client.from('family_members').update({
+                           'profile_id': userId,
+                        }).eq('id', duplicate['id']);
+                        
+                        if (context.mounted) {
+                           Navigator.pop(context); // Close Smart Join
+                           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã kết nối tài khoản thành công!')));
+                           _navigateToTree(context, {'id': clanId, 'name': clanName, 'owner_id': '', 'type': ''}); // Lazy fix/fetch
+                        }
+                        return;
+                    }
+                 }
+                 
+                 // CREATE NEW LOGIC
+                 try {
+                     final Map<String, dynamic> data = {
+                       'clan_id': clanId,
+                       'profile_id': userId,
+                       'full_name': inputName,
+                       'is_alive': true,
+                       'gender': 'male', // Default, maybe add selector?
+                       'title': 'Thành viên',
+                     };
+                     
+                     if (selectedRelativeId != null) {
+                        final relative = existingMembers.firstWhere((m) => m['id'] == selectedRelativeId);
+                        if (relationType == 'child') {
+                           if (relative['gender'] == 'male') {
+                              data['father_id'] = relative['id'];
+                              data['mother_id'] = relative['spouse_id'];
+                           } else {
+                              data['mother_id'] = relative['id'];
+                              data['father_id'] = relative['spouse_id'];
+                           }
+                        } else if (relationType == 'spouse') {
+                           data['spouse_id'] = relative['id'];
+                        }
+                     }
+                     
+                     final newRes = await Supabase.instance.client.from('family_members').insert(data).select().single();
+                     
+                     // If spouse, backlink
+                     if (selectedRelativeId != null && relationType == 'spouse') {
+                        await Supabase.instance.client.from('family_members').update({'spouse_id': newRes['id']}).eq('id', selectedRelativeId!);
+                     }
+                     
+                     if (context.mounted) {
+                        Navigator.pop(context); // Close dialog
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Đã tham gia "$clanName" thành công!')));
+                        _navigateToTree(context, {'id': clanId, 'name': clanName, 'owner_id': '', 'type': ''});
+                     }
+                 } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: $e')));
+                 }
+              },
+              child: const Text('Hoàn tất'),
+            ),
+          ],
+        );
+      }
+    );
   }
 
   Widget _buildOptionItem(BuildContext context, {

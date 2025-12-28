@@ -23,7 +23,7 @@ class _CreatePersonalFamilyWizardState extends State<CreatePersonalFamilyWizard>
   final Map<int, Map<String, dynamic>> _data = {
     0: {'title': 'Ông Cố', 'name': '', 'is_alive': false},
     1: {'title': 'Ông Nội', 'name': '', 'is_alive': false},
-    2: {'title': 'Bố', 'name': '', 'is_alive': true},
+    2: {'title': 'Bố', 'name': '', 'is_alive': true, 'mother_name': '', 'mother_alive': true},
     3: {'title': 'Bản Thân & Anh Chị Em', 'self_name': '', 'siblings': ''},
     4: {'title': 'Con Cái', 'children': ''},
   };
@@ -166,12 +166,30 @@ class _CreatePersonalFamilyWizardState extends State<CreatePersonalFamilyWizard>
           decoration: InputDecoration(labelText: 'Họ và Tên $title', border: const OutlineInputBorder(), prefixIcon: const Icon(Icons.person_outline)),
           onChanged: (v) => stepData['name'] = v,
         ),
-        const SizedBox(height: 16),
         CheckboxListTile(
           title: const Text('Còn sống?'),
           value: stepData['is_alive'],
           onChanged: (v) => setState(() => stepData['is_alive'] = v),
         ),
+        
+        // Add Mother Input for Gen 3 (Father)
+        if (stepIndex == 2) ...[
+          const SizedBox(height: 24),
+          const Divider(),
+          const SizedBox(height: 8),
+          Text('Thông tin Mẹ (Vợ của Bố)', style: GoogleFonts.playfairDisplay(fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          TextFormField(
+            initialValue: stepData['mother_name'],
+            decoration: const InputDecoration(labelText: 'Họ và Tên Mẹ', border: OutlineInputBorder(), prefixIcon: Icon(Icons.person_3_outlined)),
+            onChanged: (v) => stepData['mother_name'] = v,
+          ),
+          CheckboxListTile(
+            title: const Text('Mẹ còn sống?'),
+            value: stepData['mother_alive'] ?? true,
+            onChanged: (v) => setState(() => stepData['mother_alive'] = v),
+          ),
+        ]
       ],
     ).animate().fadeIn();
   }
@@ -238,9 +256,10 @@ class _CreatePersonalFamilyWizardState extends State<CreatePersonalFamilyWizard>
 
       final clanId = clan['id'];
 
-      // 2. Insert Ancestors (Linear)
+      // 2. Insert Ancestors (Linear) & Mother
       int? currentFatherId;
       for (int i = 0; i < 3; i++) {
+        // Insert Father/Ancestor
         final res = await Supabase.instance.client.from('family_members').insert({
           'clan_id': clanId,
           'full_name': _data[i]!['name'].toString().isEmpty ? 'Ông ${_data[i]!['title']}' : _data[i]!['name'],
@@ -248,7 +267,30 @@ class _CreatePersonalFamilyWizardState extends State<CreatePersonalFamilyWizard>
           'father_id': currentFatherId,
           'gender': 'male',
         }).select().single();
-        currentFatherId = res['id'];
+        final ancestorId = res['id'];
+        
+        // Update currentFatherId for next generation linkage
+        currentFatherId = ancestorId;
+
+        // If this is Gen 3 (Father), insert Mother
+        if (i == 2) {
+           final motherName = _data[i]!['mother_name'];
+           if (motherName != null && motherName.toString().isNotEmpty) {
+               final motherRes = await Supabase.instance.client.from('family_members').insert({
+                   'clan_id': clanId,
+                   'full_name': motherName,
+                   'is_alive': _data[i]!['mother_alive'] ?? true,
+                   'gender': 'female',
+                   'spouse_id': ancestorId, // Link to Father
+                   'is_maternal': false, // Married into family
+               }).select().single();
+               
+               // Link Father to Mother
+               await Supabase.instance.client.from('family_members').update({
+                   'spouse_id': motherRes['id']
+               }).eq('id', ancestorId);
+           }
+        }
       }
 
       // 3. Insert Self & Siblings (Step 3)
