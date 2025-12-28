@@ -147,22 +147,34 @@ class _ClanTreePageState extends State<ClanTreePage> {
             onPressed: () => _showClanQr(context),
             tooltip: 'Mã QR Dòng họ',
           ),
-          if (_isOwner)
-            PopupMenuButton<String>(
+          PopupMenuButton<String>(
               onSelected: (v) {
                 if (v == 'merge') _showMergeDialog();
+                if (v == 'leave') _leaveClan();
               },
               itemBuilder: (context) => [
-                const PopupMenuItem(
-                  value: 'merge',
-                  child: Row(
-                    children: [
-                      Icon(Icons.merge_type, color: Colors.blueGrey),
-                      SizedBox(width: 8),
-                      Text('Gộp vào Dòng họ khác'),
-                    ],
+                if (_isOwner)
+                  const PopupMenuItem(
+                    value: 'merge',
+                    child: Row(
+                      children: [
+                        Icon(Icons.merge_type, color: Colors.blueGrey),
+                        SizedBox(width: 8),
+                        Text('Gộp vào Dòng họ khác'),
+                      ],
+                    ),
                   ),
-                ),
+                if (!_isOwner)
+                  const PopupMenuItem(
+                    value: 'leave',
+                    child: Row(
+                      children: [
+                        Icon(Icons.exit_to_app, color: Colors.redAccent),
+                        SizedBox(width: 8),
+                        Text('Rời Gia Phả', style: TextStyle(color: Colors.redAccent)),
+                      ],
+                    ),
+                  ),
               ],
             ),
           const SizedBox(width: 8),
@@ -573,6 +585,41 @@ class _ClanTreePageState extends State<ClanTreePage> {
         currentUserId: _currentUserId!,
       ),
     );
+  }
+
+  Future<void> _leaveClan() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rời Gia Phả'),
+        content: const Text('Bạn có chắc muốn rời khỏi gia phả này không? Thông tin của bạn trong cây gia phả vẫn sẽ được giữ lại, nhưng tài khoản của bạn sẽ không còn liên kết nữa.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Huỷ')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            child: const Text('Rời đi'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && _currentUserId != null) {
+       try {
+         await Supabase.instance.client
+             .from('family_members')
+             .update({'profile_id': null})
+             .eq('clan_id', widget.clanId)
+             .eq('profile_id', _currentUserId!);
+             
+         if (mounted) {
+            Navigator.pop(context); // Exit tree page
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã rời khỏi gia phả.')));
+         }
+       } catch (e) {
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: $e')));
+       }
+    }
   }
 
   void _showMemberDetails(FamilyMember member) {
