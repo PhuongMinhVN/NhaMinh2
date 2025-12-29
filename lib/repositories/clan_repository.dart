@@ -79,6 +79,7 @@ class ClanRepository {
     required String targetClanId,
     required String type, // 'claim_existing' | 'create_new'
     required Map<String, dynamic> metadata,
+    int? targetParentId,
   }) async {
     final user = _client.auth.currentUser;
     if (user == null) throw 'User not logged in';
@@ -99,6 +100,7 @@ class ClanRepository {
       'status': 'pending',
       'type': type,
       'metadata': metadata,
+      'target_parent_id': targetParentId,
     });
   }
 

@@ -113,43 +113,69 @@ class _MergeClanWizardState extends State<MergeClanWizard> {
   // --- Logic Step 2 (Add Parent) ---
   void _showAddParentDialog() {
     final nameController = TextEditingController();
+    String selectedGender = 'male';
+
     showDialog(
       context: context, 
-      builder: (c) => AlertDialog(
-        title: const Text('Thêm Cha/Ông vào Dòng họ đích'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Nếu người cha/ông của bạn chưa có trong danh sách, hãy tạo mới để kết nối.', style: TextStyle(fontSize: 12)),
-            const SizedBox(height: 16),
-            TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Họ và Tên', border: OutlineInputBorder())),
+      builder: (c) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Thêm Cha/Mẹ vào Dòng họ đích'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Nếu cha/mẹ của bạn chưa có trong danh sách, hãy tạo mới để kết nối.', style: TextStyle(fontSize: 12)),
+              const SizedBox(height: 16),
+              TextField(controller: nameController, decoration: const InputDecoration(labelText: 'Họ và Tên', border: OutlineInputBorder())),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  const Text('Vai trò: '),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('Cha (Ông)'),
+                    selected: selectedGender == 'male',
+                    onSelected: (v) => setState(() => selectedGender = 'male'),
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('Mẹ (Bà)'),
+                    selected: selectedGender == 'female',
+                    onSelected: (v) => setState(() => selectedGender = 'female'),
+                  ),
+                ],
+              )
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(c), child: const Text('Huỷ')),
+            ElevatedButton(
+              onPressed: () async {
+                 if (nameController.text.isEmpty) return;
+                 Navigator.pop(c);
+                 await _createAnchorParent(nameController.text, selectedGender);
+              },
+              child: const Text('Tạo mới'),
+            )
           ],
         ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(c), child: const Text('Huỷ')),
-          ElevatedButton(
-            onPressed: () async {
-               if (nameController.text.isEmpty) return;
-               Navigator.pop(c);
-               await _createAnchorParent(nameController.text);
-            },
-            child: const Text('Tạo mới'),
-          )
-        ],
       )
     );
   }
 
-  Future<void> _createAnchorParent(String name) async {
+  Future<void> _createAnchorParent(String name, String gender) async {
     if (_targetClanInfo == null) return;
     setState(() => _isLoading = true);
     try {
       final res = await Supabase.instance.client.from('family_members').insert({
         'clan_id': _targetClanInfo!['id'],
         'full_name': name,
-        'gender': 'male', // Assume male ancestor for now based on 'Father' context
-        'is_alive': false, // Usually ancestors are deceased, but maybe prompt?
-        'title': 'Ông', // Generic title
+        'gender': gender,
+        'is_alive': false,
+        'title': gender == 'male' ? 'Ông' : 'Bà',
+        'is_maternal': false, // Assume main line unless specified otherwise? Or depends on merge context. 
+                              // If merging into a Clan, usually we merge into the main line via Father.
+                              // If merging via Mother, it's maternal. 
+                              // But let's keep it simple: just create the node. The link depth is determined by who adds it.
       }).select().single();
       
       final newMember = FamilyMember.fromJson(res);
@@ -158,7 +184,7 @@ class _MergeClanWizardState extends State<MergeClanWizard> {
         _selectedParent = newMember;
         _isLoading = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã tạo và chọn người cha mới')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Đã tạo và chọn ${gender == 'male' ? 'Cha' : 'Mẹ'} mới')));
     } catch (e) {
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi tạo: $e')));
@@ -193,7 +219,7 @@ class _MergeClanWizardState extends State<MergeClanWizard> {
       final result = await _mergeService.mergeClans(
         sourceClanId: widget.sourceClanId, 
         targetClanId: _targetClanInfo!['id'],
-        anchorTargetParentId: _selectedParent?.id,
+        anchorParent: _selectedParent, // Pass Full Object
         sourceRootMemberId: sourceRootId,
         rootBirthOrder: _isMainBranch ? 1 : _birthOrder,
       );

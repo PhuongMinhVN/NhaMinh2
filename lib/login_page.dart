@@ -449,6 +449,19 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                 ),
               ).animate().fadeIn(delay: 800.ms).moveY(begin: 10),
+
+              const SizedBox(height: 32),
+              Center(
+                child: Text(
+                  'Power by PMVN 2025',
+                  style: GoogleFonts.inter(
+                    fontSize: 12, 
+                    color: Colors.brown.withOpacity(0.5),
+                    fontStyle: FontStyle.italic
+                  ),
+                ),
+              ).animate().fadeIn(delay: 1000.ms),
+              const SizedBox(height: 16),
             ],
           ),
         ),

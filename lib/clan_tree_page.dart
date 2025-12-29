@@ -188,7 +188,11 @@ class _ClanTreePageState extends State<ClanTreePage> {
           : _members.isEmpty
                ? _buildEmptyState()
                : _isGraphView 
-                   ? GraphTreeView(members: _members, onMemberTap: _showMemberDetails)
+                   ? GraphTreeView(
+                       members: _members, 
+                       onMemberTap: _showMemberDetails,
+                       isClan: widget.clanType == 'clan',
+                     )
                    : ListView.builder(
                        padding: const EdgeInsets.all(16),
                        itemCount: _members.length,
@@ -498,22 +502,30 @@ class _ClanTreePageState extends State<ClanTreePage> {
               ),
           ],
         ),
-        title: Row(
-          children: [
-            Text(member.fullName, style: const TextStyle(fontWeight: FontWeight.bold)),
-            if (member.title != null) ...[
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                decoration: BoxDecoration(color: Colors.amber.shade100, borderRadius: BorderRadius.circular(4)),
-                child: Text(member.title!, style: TextStyle(fontSize: 10, color: Colors.amber.shade900)),
-              ),
-            ],
-          ],
-        ),
+        title: Text(member.fullName, style: const TextStyle(fontWeight: FontWeight.bold)),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // TITLE / LABEL (Ông Nội, Bà Nội...)
+            if (member.title != null && member.title!.isNotEmpty)
+              Container(
+                margin: const EdgeInsets.only(top: 4, bottom: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.brown.shade50, 
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.brown.shade200),
+                ),
+                child: Text(
+                  member.title!,
+                  style: GoogleFonts.playfairDisplay(
+                    fontSize: 12, 
+                    fontWeight: FontWeight.bold, 
+                    color: Colors.brown.shade900
+                  ),
+                ),
+              ),
+
             if (relationLabel != null)
                Padding(
                  padding: const EdgeInsets.symmetric(vertical: 2.0),
@@ -718,6 +730,19 @@ class _ClanTreePageState extends State<ClanTreePage> {
              _detailRow(Icons.favorite, member.gender == 'male' ? 'Vợ' : 'Chồng', spouseName),
              if (member.profileId != null) 
                _detailRow(Icons.verified_user, 'Tài khoản', 'Đã liên kết'),
+             
+             if (member.bio != null && member.bio!.isNotEmpty) ...[
+               const SizedBox(height: 12),
+               const Text('Tiểu sử / Thông tin thêm:', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF8B1A1A))),
+               const SizedBox(height: 4),
+               Container(
+                 padding: const EdgeInsets.all(12),
+                 width: double.infinity,
+                 decoration: BoxDecoration(color: Colors.white70, borderRadius: BorderRadius.circular(8)),
+                 child: Text(member.bio!, style: const TextStyle(fontSize: 13, height: 1.4)),
+               )
+             ],
+
              const SizedBox(height: 24),
            ],
          ),

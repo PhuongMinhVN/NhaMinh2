@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'pages/create_family_form.dart';
 
 class CreateGenealogyWizard extends StatefulWidget {
   final bool isClan; // true for Clan (Dòng họ), false for Family (Gia đình)
@@ -13,50 +14,54 @@ class CreateGenealogyWizard extends StatefulWidget {
 }
 
 class _CreateGenealogyWizardState extends State<CreateGenealogyWizard> {
-  int _currentStep = 0;
   bool _isLoading = false;
+  final _formKey = GlobalKey<FormState>();
 
-  // Data for 9 Generations + Meta info
-  final _metaFormKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController(); // Name of Clan/Family
-  final _descriptionController = TextEditingController();
-  
-  // 9 Generations Data Controllers
-  // Key: Generation Index (-4 to +4, 0 is Self)
-  // Value: Map of data (name, spouse, etc.)
-  final Map<int, Map<String, dynamic>> _generationsData = {};
+  // Meta Data
+  final _clanNameController = TextEditingController();
+  final _clanDescController = TextEditingController();
 
+  // Generations Data
+  // 5 Generations: Tứ Đại, Tam Đại, Ông Nội, Bố, Con
   final List<String> _genTitles = [
-    'Cao Tổ (Ông nội của ông nội)',
-    'Tằng Tổ (Ông nội của cha)',
-    'Nội Tổ (Ông nội)',
-    'Phụ Thân (Cha)',
-    'Bản Thân (Tôi)',
-    'Tử (Con)',
-    'Tôn (Cháu)',
-    'Tằng Tôn (Chất)',
-    'Huyền Tôn (Chút)'
+    'Tứ Đại (Ông Cố)',
+    'Tam Đại (Ông Sơ)',
+    'Ông Nội',
+    'Bố',
+    'Con (Bạn)',
   ];
+
+  // Controllers for each generation (Male & Female)
+  late List<TextEditingController> _maleControllers;
+  late List<TextEditingController> _femaleControllers;
 
   @override
   void initState() {
     super.initState();
+    // Initialize 5 pairs of controllers
+    _maleControllers = List.generate(5, (_) => TextEditingController());
+    _femaleControllers = List.generate(5, (_) => TextEditingController());
+    
     _initializeData();
   }
 
+  @override
+  void dispose() {
+    _clanNameController.dispose();
+    _clanDescController.dispose();
+    for (var c in _maleControllers) c.dispose();
+    for (var c in _femaleControllers) c.dispose();
+    super.dispose();
+  }
+
   void _initializeData() async {
-    // Pre-fill "Self" data if available
     final user = Supabase.instance.client.auth.currentUser;
     if (user != null) {
       final profile = await Supabase.instance.client.from('profiles').select().eq('id', user.id).maybeSingle();
-      if (profile != null) {
+      if (profile != null && profile['full_name'] != null) {
         setState(() {
-          _generationsData[0] = {
-            'name': profile['full_name'],
-            'dob': '',
-            'is_alive': true,
-            'is_self': true,
-          };
+          // Pre-fill the last generation (Con/User) with profile name
+          _maleControllers[4].text = profile['full_name'];
         });
       }
     }
@@ -64,308 +69,255 @@ class _CreateGenealogyWizardState extends State<CreateGenealogyWizard> {
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.isClan) {
+       return const CreateFamilyForm();
+    }
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.isClan ? 'Tạo Gia Phả Dòng Họ' : 'Tạo Gia Phả Gia Đình'),
+        title: const Text('Tạo Gia Phả (5 Đời)'),
         elevation: 0,
       ),
-      body: Column(
-        children: [
-          // Progress Bar
-          LinearProgressIndicator(
-            value: (_currentStep + 1) / 10, // 1 Meta step + 9 Gen steps
-            backgroundColor: Colors.grey.shade200,
-            valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).primaryColor),
-          ),
-          
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: _buildStepContent(),
-            ),
-          ),
-          
-          // Navigation Buttons
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: const Offset(0, -2))],
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                if (_currentStep > 0)
-                  OutlinedButton(
-                    onPressed: _isLoading ? null : () => setState(() => _currentStep--),
-                    child: const Text('Quay lại'),
-                  )
-                else
-                  const SizedBox(),
-                
-                ElevatedButton(
-                  onPressed: _isLoading ? null : _onNextStep,
-                  child: _isLoading 
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white))
-                    : Text(_currentStep == 9 ? 'Hoàn tất' : 'Tiếp tục'),
-                ),
-              ],
-            ),
-          ),
-        ],
+      body: Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            _buildMetaResection(),
+            const SizedBox(height: 24),
+            const Divider(thickness: 2),
+            const SizedBox(height: 16),
+            ...List.generate(5, (index) => _buildGenerationRow(index)),
+            const SizedBox(height: 32),
+            _buildSubmitButton(),
+            const SizedBox(height: 40),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildStepContent() {
-    if (_currentStep == 0) {
-      return _buildMetaStep();
-    } else {
-      // Steps 1 to 9 correspond to Generation Index 0 to 8 in the list
-      // But map to Gen Index -4 to +4 logic
-      final listIndex = _currentStep - 1; 
-      final genIndex = listIndex - 4; // -4, -3, ... 0 ... +4
-      return _buildGenerationStep(listIndex, genIndex);
-    }
-  }
-
-  Widget _buildMetaStep() {
-    return Form(
-      key: _metaFormKey,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Thông tin chung',
-            style: GoogleFonts.playfairDisplay(fontSize: 24, fontWeight: FontWeight.bold),
-          ).animate().fadeIn().slideX(),
-          const SizedBox(height: 8),
-          Text(
-            widget.isClan 
-              ? 'Hãy đặt tên cho Dòng họ của bạn (Ví dụ: Họ Nguyễn - Chi 2 - Bắc Ninh)'
-              : 'Đặt tên cho Gia đình nhỏ (Ví dụ: Gia đình Ông Ba)',
-            style: const TextStyle(color: Colors.grey),
-          ),
-          const SizedBox(height: 24),
-          
-          TextFormField(
-            controller: _nameController,
-            decoration: const InputDecoration(
-              labelText: 'Tên hiển thị',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.stars),
-            ),
-            validator: (v) => v!.isEmpty ? 'Vui lòng nhập tên' : null,
-          ),
-          const SizedBox(height: 16),
-          TextFormField(
-            controller: _descriptionController,
-            decoration: const InputDecoration(
-              labelText: 'Mô tả / Ghi chú (Từ đường, địa chỉ gốc...)',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.description),
-            ),
-            maxLines: 3,
-          ),
-          
-          const SizedBox(height: 24),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.blue.shade50,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.blue.shade200),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.info_outline, color: Colors.blue),
-                SizedBox(width: 12),
-                Expanded(child: Text('Sau bước này, bạn sẽ nhập thông tin cho 9 đời theo cấu trúc "Cửu Tộc" để hệ thống xây dựng cây gia phả mẫu.')),
-              ],
-            ),
-          )
-        ],
-      ),
-    );
-  }
-
-  Widget _buildGenerationStep(int listIndex, int genIndex) {
-    // genIndex: -4 (Cao Tổ) ... 0 (Self) ... +4 (Huyền Tôn)
-    final title = _genTitles[listIndex];
-    final isSelf = genIndex == 0;
-    
-    // Ensure map entry exists
-    if (!_generationsData.containsKey(genIndex)) {
-       _generationsData[genIndex] = {};
-    }
-    final data = _generationsData[genIndex]!;
-    
-    // Use controllers specifically for this step to persist text when switching steps?
-    // A simplified approach: bind value to a map update on change, init value from map.
-    
+  Widget _buildMetaResection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Chip(
-          label: Text('Đời thứ ${listIndex + 1} / 9'),
-          backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
-          labelStyle: TextStyle(color: Theme.of(context).primaryColor),
+        Text(
+          'Thông tin Dòng họ',
+          style: GoogleFonts.playfairDisplay(fontSize: 22, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 16),
-        Text(
-          title,
-          style: GoogleFonts.playfairDisplay(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.brown.shade900),
-        ).animate().fadeIn().slideY(),
-        
-        if (isSelf) ...[
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: Colors.green.shade100, borderRadius: BorderRadius.circular(4)),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.check_circle, size: 16, color: Colors.green),
-                SizedBox(width: 8),
-                Text('Đây chính là BẠN', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
-              ],
-            ),
-          ),
-        ],
-        
-        const SizedBox(height: 32),
-        
-        // Input Fields
         TextFormField(
-          initialValue: data['name'] ?? '',
+          controller: _clanNameController,
           decoration: const InputDecoration(
-            labelText: 'Họ và Tên',
+            labelText: 'Tên Dòng Họ',
+            hintText: 'VD: Họ Nguyễn - Chi 2',
             border: OutlineInputBorder(),
-            prefixIcon: Icon(Icons.person),
+            prefixIcon: Icon(Icons.stars),
           ),
-          onChanged: (val) => data['name'] = val,
+          validator: (v) => v!.trim().isEmpty ? 'Vui lòng nhập tên dòng họ' : null,
         ),
-        const SizedBox(height: 16),
-        
-        DropdownButtonFormField<String>(
-          value: data['gender'] ?? 'unknown',
-          decoration: const InputDecoration(labelText: 'Giới tính', border: OutlineInputBorder()),
-          items: const [
-            DropdownMenuItem(value: 'unknown', child: Text('Không rõ / Mặc định')),
-            DropdownMenuItem(value: 'Nam', child: Text('Nam')),
-            DropdownMenuItem(value: 'Nữ', child: Text('Nữ')),
-          ],
-          onChanged: (val) => data['gender'] = val,
-        ),
-        
-        if (!isSelf) ...[
-           const SizedBox(height: 16),
-           CheckboxListTile(
-             contentPadding: EdgeInsets.zero,
-             title: const Text('Còn sống?'),
-             value: data['is_alive'] ?? false, 
-             onChanged: (val) => setState(() => data['is_alive'] = val),
-           ),
-        ],
-
-        const SizedBox(height: 16),
-        Text(
-          genIndex < 0 ? 'Nếu thông tin này chưa rõ, bạn có thể để trống và cập nhật sau.' 
-                       : (isSelf ? 'Kiểm tra kỹ thông tin của bạn.' : 'Nhập tên con/cháu đại diện nếu có.'),
-          style: const TextStyle(fontStyle: FontStyle.italic, color: Colors.grey),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _clanDescController,
+          decoration: const InputDecoration(
+            labelText: 'Mô tả / Địa chỉ',
+            hintText: '...',
+            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.description),
+          ),
+          maxLines: 2,
         ),
       ],
     );
   }
 
-  void _onNextStep() async {
-    // 1. Validation for Step 0
-    if (_currentStep == 0) {
-      if (!_metaFormKey.currentState!.validate()) return;
-    }
-    
-    // 2. Logic for Finish (Step 9)
-    if (_currentStep == 9) {
-      await _submitData();
+  Widget _buildGenerationRow(int index) {
+    // 0: Tu Dai, ..., 4: Con
+    final title = _genTitles[index];
+    final isUser = index == 4;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 14,
+                  backgroundColor: Theme.of(context).primaryColor,
+                  child: Text('${index + 1}', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  title,
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                ),
+                if (isUser) ...[
+                  const Spacer(),
+                  const Chip(label: Text('Bạn'), backgroundColor: Colors.green, labelStyle: TextStyle(color: Colors.white), visualDensity: VisualDensity.compact),
+                ]
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _maleControllers[index],
+                    decoration: InputDecoration(
+                      labelText: isUser ? 'Họ tên (Bạn)' : 'Tên Ông (Chồng)',
+                      hintText: '...',
+                      border: const OutlineInputBorder(),
+                      prefixIcon: const Icon(Icons.man),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    ),
+                    validator: (val) {
+                      if (isUser && (val == null || val.trim().isEmpty)) {
+                        return 'Bắt buộc';
+                      }
+                      return null;
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextFormField(
+                    controller: _femaleControllers[index],
+                    decoration: const InputDecoration(
+                      labelText: 'Tên Bà (Vợ)',
+                      hintText: '...',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.woman),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ).animate().fadeIn(duration: 400.ms, delay: (100 * index).ms).slideX(begin: 0.1);
+  }
+
+  Widget _buildSubmitButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 50,
+      child: ElevatedButton.icon(
+        onPressed: _isLoading ? null : _submitForm,
+        icon: _isLoading 
+          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+          : const Icon(Icons.check),
+        label: Text(_isLoading ? 'Đang tạo...' : 'Hoàn tất & Tạo Gia Phả'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Theme.of(context).primaryColor,
+          foregroundColor: Colors.white,
+          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _submitForm() async {
+    if (!_formKey.currentState!.validate()) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Vui lòng kiểm tra lại thông tin')));
       return;
     }
 
-    // 3. Move Next
-    setState(() => _currentStep++);
-  }
-
-  Future<void> _submitData() async {
     setState(() => _isLoading = true);
     
     try {
       final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) return;
+      if (user == null) throw 'Chưa đăng nhập';
 
       // 1. Create Clan
       final clanRes = await Supabase.instance.client.from('clans').insert({
-        'name': _nameController.text.trim(),
-        'description': _descriptionController.text.trim(),
+        'name': _clanNameController.text.trim(),
+        'description': _clanDescController.text.trim(),
         'owner_id': user.id,
-        'type': widget.isClan ? 'clan' : 'family', // Assuming column exists or JSON
-        'qr_code': _generateRandomCode(6),
+        'type': widget.isClan ? 'clan' : 'family',
+        'qr_code': _generateRandomCode(8),
       }).select().single();
       
       final clanId = clanRes['id'];
 
-      // 2. Create Members recursively?
-      // Since it's a direct lineage line (Cao To -> Tang To -> Noi To -> Cha -> Me -> Con -> Chau...),
-      // we can link them sequentially.
-      
+      // 2. Insert Members (Top Down)
+      // Order: Tứ Đại (Index 0) -> Tam Đại (1) -> Ông Nội (2) -> Bố (3) -> Con (4, User)
+      // Logic: Ancestors (0,1,2,3) -> Self (4)
       int? previousFatherId;
-      
-      // Iterate from Gen -4 to +4
-      for (int i = -4; i <= 4; i++) {
-        final d = _generationsData[i];
-        if (d == null || (d['name'] == null && i != 0)) {
-            // Gap in data, but we must maintain linkage?
-            // If unknown ancestor, we might skip creating record OR create a placeholder "Unknown".
-            // Let's create placeholder if name is empty but previous existed?
-            // For simplicity, if name empty, skip? No, that breaks tree.
-            // If name is empty, we insert "Chưa rõ" to keep the chain.
-            if (previousFatherId != null || i == -4) {
-               // Continue chain
-            } else {
-               continue; 
-            }
-        }
+
+      for (int i = 0; i < 5; i++) {
+        final maleName = _maleControllers[i].text.trim();
+        final femaleName = _femaleControllers[i].text.trim();
         
-        String name = d?['name'] ?? 'Chưa rõ';
-        // Cleanup
-        if (name.trim().isEmpty) name = 'Chưa rõ';
+        // "Con" (Self) is always required.
+        // For ancestors: If user provided a name, create them.
+        // If user skipped (empty name), do we break chain?
+        // To ensure the tree is connected, we should probably create "Unknown" nodes if there are gaps 
+        // between a known ancestor and the user?
+        // But for this wizard, let's assume if they fill Tứ Đại, they fill the rest. 
+        // Or if they leave blank, we insert "Không rõ" to maintain father_id chain.
+        // Let's go with "Không rõ" if empty, except for Self which is validated.
         
-        final Map<String, dynamic> memberData = {
+        String finalMaleName = maleName.isEmpty ? (i == 4 ? 'Bạn' : 'Không rõ') : maleName;
+        
+        // Create Husband (Male)
+        final husData = {
           'clan_id': clanId,
-          'full_name': name,
+          'full_name': finalMaleName,
+          'gender': 'male',
+          'is_alive': (i == 4), // Only Self is alive by default in this bulk create? Or let user edit later.
           'father_id': previousFatherId,
-          // 'generation': i, // Optional if schema has it
-          'gender': d?['gender'] == 'Nữ' ? 'female' : 'male', // Default male usually for ancestors in VN genealogy
-          'is_alive': d?['is_alive'] ?? false,
         };
-
+        
         // If Self
-        if (i == 0) {
-           memberData['profile_id'] = user.id; // Link to auth user
-           memberData['is_alive'] = true;
+        if (i == 4) {
+          husData['profile_id'] = user.id;
+          husData['is_alive'] = true;
         }
 
-        final memberRes = await Supabase.instance.client.from('family_members').insert(memberData).select().single();
-        previousFatherId = memberRes['id'];
+        final husRes = await Supabase.instance.client
+            .from('family_members')
+            .insert(husData)
+            .select()
+            .single();
         
-        // Update Root if first
-        if (i == -4 || (previousFatherId != null && i == -4)) {
-           // Maybe mark root
+        final husId = husRes['id'];
+        previousFatherId = husId; // Pass to next generation as father
+
+        // Create Wife (Female) if provided
+        if (femaleName.isNotEmpty) {
+           final wifeData = {
+             'clan_id': clanId,
+             'full_name': femaleName,
+             'gender': 'female',
+             'is_alive': (i == 4),
+             'spouse_id': husId, // Link to husband
+           };
+           
+           final wifeRes = await Supabase.instance.client
+              .from('family_members')
+              .insert(wifeData)
+              .select()
+              .single();
+           
+           // Update Husband link
+           await Supabase.instance.client
+              .from('family_members')
+              .update({'spouse_id': wifeRes['id']})
+              .eq('id', husId);
         }
       }
-      
+
       if (mounted) {
         Navigator.pop(context); // Close Wizard
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tạo gia phả thành công!')));
-        // Trigger generic refresh if needed
       }
 
     } catch (e) {
@@ -376,9 +328,8 @@ class _CreateGenealogyWizardState extends State<CreateGenealogyWizard> {
       if (mounted) setState(() => _isLoading = false);
     }
   }
-  
+
   String _generateRandomCode(int length) {
-    // Simple random string
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     return List.generate(length, (index) => chars[(DateTime.now().microsecondsSinceEpoch * (index + 1)) % chars.length]).join();
   }

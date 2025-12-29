@@ -48,8 +48,8 @@ class EventService {
     
     final createdEvent = Event.fromJson(response);
 
-    // Trigger Notification (Await to ensure delivery)
-    await _notifyMembers(createdEvent);
+    // Trigger Notification is handled by SQL Trigger (handle_new_event_notification)
+    // Removed manual call to avoid double notifications.
 
     return createdEvent;
   }
@@ -179,4 +179,3 @@ class EventService {
     }
   }
 }
-

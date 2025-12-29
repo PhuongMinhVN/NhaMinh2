@@ -9,8 +9,6 @@ import 'models/clan_event.dart';
 import 'repositories/event_repository.dart';
 import 'clan_events_page.dart';
 import 'create_genealogy_wizard.dart'; 
-import 'clan_events_page.dart';
-import 'create_genealogy_wizard.dart'; 
 import 'family_tree_welcome_page.dart';
 import 'widgets/event_list_widget.dart';
 import 'pages/events/add_event_page.dart';
@@ -22,6 +20,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'dart:typed_data';
 import 'pages/join_request_page.dart';
 import 'repositories/clan_repository.dart';
+import 'widgets/dashboard_action_button.dart';
 
 
 class DashboardPage extends StatefulWidget {
@@ -44,108 +43,11 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   void initState() {
     super.initState();
-    // Bỏ qua bước kiểm tra cập nhật hồ sơ bắt buộc khi vừa vào
-    // _checkProfileCompleteness();
+    // Removed legacy profile check
   }
 
-  Future<void> _checkProfileCompleteness() async {
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) return;
+  // Legacy profile code removed
 
-    try {
-      final data = await Supabase.instance.client
-          .from('profiles')
-          .select('phone, vnccid')
-          .eq('id', user.id)
-          .single();
-
-      final phone = data['phone'] as String?;
-      final vnccid = data['vnccid'] as String?;
-
-      if (phone == null || phone.isEmpty || vnccid == null || vnccid.isEmpty) {
-        if (mounted) {
-          _showUpdateProfileDialog();
-        }
-      }
-    } catch (e) {
-      // Profile might not exist yet or connection error
-      debugPrint('Error checking profile: $e');
-    }
-  }
-
-  void _showUpdateProfileDialog() {
-    final phoneCtrl = TextEditingController();
-    final vnccidCtrl = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-    bool isUpdating = false;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false, // Bắt buộc phải nhập
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setStateDialog) {
-            return AlertDialog(
-              title: Text('Cập nhật thông tin', style: GoogleFonts.playfairDisplay(fontWeight: FontWeight.bold)),
-              content: Form(
-                key: formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('Chào mừng thành viên mới! Vui lòng cập nhật thông tin để hoàn tất hồ sơ.'),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: vnccidCtrl,
-                      decoration: const InputDecoration(labelText: 'Số CCCD / VNCCID', prefixIcon: Icon(Icons.badge)),
-                      maxLength: 12,
-                      keyboardType: TextInputType.number,
-                      validator: (v) => (v == null || v.length != 12) ? 'CCCD phải đúng 12 số' : null,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: phoneCtrl,
-                      decoration: const InputDecoration(labelText: 'Số điện thoại', prefixIcon: Icon(Icons.phone)),
-                      maxLength: 10,
-                      keyboardType: TextInputType.phone,
-                      validator: (v) => (v == null || v.length != 10) ? 'SĐT phải đúng 10 số' : null,
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => _signOut(), // Cho phép đăng xuất nếu không muốn nhập
-                  child: const Text('Đăng xuất'),
-                ),
-                ElevatedButton(
-                  onPressed: isUpdating ? null : () async {
-                    if (formKey.currentState!.validate()) {
-                      setStateDialog(() => isUpdating = true);
-                      try {
-                        await Supabase.instance.client.from('profiles').update({
-                          'phone': phoneCtrl.text.trim(),
-                          'vnccid': vnccidCtrl.text.trim(),
-                        }).eq('id', user!.id);
-                        
-                        if (mounted) {
-                           Navigator.of(context).pop();
-                           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cập nhật thành công!')));
-                        }
-                      } catch (e) {
-                        setStateDialog(() => isUpdating = false);
-                        // Show error toast
-                      }
-                    }
-                  },
-                  child: isUpdating ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white)) : const Text('Hoàn tất'),
-                ),
-              ],
-            );
-          }
-        );
-      },
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -166,8 +68,12 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
           IconButton(
             icon: const Icon(Icons.qr_code_scanner),
-            onPressed: () {
-               Navigator.push(context, MaterialPageRoute(builder: (_) => const ScanQrPage()));
+            onPressed: () async {
+               // Sửa: Đợi kết quả trả về từ màn hình Scan
+               final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => const ScanQrPage(returnScanData: true)));
+               if (result != null && result is String) {
+                 _processJoinCode(result);
+               }
             },
             tooltip: 'Quét QR',
           ),
@@ -243,6 +149,18 @@ class _DashboardPageState extends State<DashboardPage> {
                       _buildClanAffairsCard(),
                       const SizedBox(height: 24),
                       _buildActionButtonsColumn(),
+                      const SizedBox(height: 48),
+                      Center(
+                        child: Text(
+                          'Power by PMVN 2025',
+                          style: GoogleFonts.inter(
+                            fontSize: 12, 
+                            color: Colors.grey.shade400,
+                            fontStyle: FontStyle.italic
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
                     ],
                   ),
             ],
@@ -867,7 +785,7 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget _buildActionButtonsColumn() {
     return Column(
       children: [
-        _buildActionButton(
+        DashboardActionButton(
           title: 'Cây Gia Phả',
           subtitle: 'Xem sơ đồ toàn bộ dòng tộc',
           icon: Icons.account_tree_sharp,
@@ -883,80 +801,6 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _buildActionButton({
-    required String title, 
-    required String subtitle, 
-    required IconData icon, 
-    required Color color, 
-    required VoidCallback onTap,
-    Color textColor = Colors.white,
-    int delay = 0,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: color.withOpacity(0.3),
-              offset: const Offset(0, 8),
-              blurRadius: 16,
-            )
-          ],
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              color,
-              Color.lerp(color, Colors.black, 0.2)!, // Slightly darker gradient
-            ],
-          )
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.2),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: textColor, size: 28),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: GoogleFonts.playfairDisplay(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: textColor,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: GoogleFonts.inter(
-                      fontSize: 13,
-                      color: textColor.withOpacity(0.9),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(Icons.chevron_right, color: textColor.withOpacity(0.7)),
-          ],
-        ),
-      ),
-    ).animate().fadeIn(delay: delay.ms).scale(begin: const Offset(0.95, 0.95));
-  }
   void _showInheritanceDialog() {
      final vnccidCtrl = TextEditingController();
      final nameCtrl = TextEditingController();
@@ -1113,13 +957,15 @@ class _DashboardPageState extends State<DashboardPage> {
   void _showCreateOptions() {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true, // Allow full height
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-             mainAxisSize: MainAxisSize.min,
-             children: [
+        return SingleChildScrollView(
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+               mainAxisSize: MainAxisSize.min,
+               children: [
                Text('Tạo mới hoặc Tham gia', style: GoogleFonts.playfairDisplay(fontSize: 20, fontWeight: FontWeight.bold)),
                const SizedBox(height: 24),
                
@@ -1201,6 +1047,7 @@ class _DashboardPageState extends State<DashboardPage> {
                  },
                ),
              ],
+           ),
           ),
         );
       },

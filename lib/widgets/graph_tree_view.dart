@@ -5,11 +5,13 @@ import '../models/family_member.dart';
 class GraphTreeView extends StatefulWidget {
   final List<FamilyMember> members;
   final Function(FamilyMember) onMemberTap;
+  final bool isClan; // Standard VN Logic toggle
 
   const GraphTreeView({
     super.key,
     required this.members,
     required this.onMemberTap,
+    this.isClan = false,
   });
 
   @override
@@ -17,12 +19,12 @@ class GraphTreeView extends StatefulWidget {
 }
 
 class _GraphTreeViewState extends State<GraphTreeView> {
-  final Graph _graph = Graph()..isTree = true;
-  late BuchheimWalkerConfiguration _builder;
-  
-  // Map ID -> Member for quick lookup
+  final Graph _graph = Graph()..isTree = false;
+  late SugiyamaConfiguration _builder;
   final Map<int, FamilyMember> _memberMap = {};
 
+  // Custom Paint for Dotted Border (optional, or just use simpler styling)
+  
   @override
   void initState() {
     super.initState();
@@ -30,23 +32,32 @@ class _GraphTreeViewState extends State<GraphTreeView> {
     
     // BUILD GRAPH
     for (var member in widget.members) {
-      // Create Node
       final node = Node.Id(member.id);
       
-      // Create Edges (Parent -> Child)
+      // 1. Parent -> Child
       if (member.fatherId != null && _memberMap.containsKey(member.fatherId)) {
-         _graph.addEdge(Node.Id(member.fatherId!), node);
-      } else if (member.motherId != null && _memberMap.containsKey(member.motherId)) {
-        // If no father recorded (rare in patrolinial), use mother as edge source
-        _graph.addEdge(Node.Id(member.motherId!), node);
+         _graph.addEdge(Node.Id(member.fatherId!), node, paint: Paint()..color = Colors.grey..strokeWidth = 1.5..style = PaintingStyle.stroke);
+      } 
+      if (member.motherId != null && _memberMap.containsKey(member.motherId)) {
+         _graph.addEdge(Node.Id(member.motherId!), node, paint: Paint()..color = Colors.grey..strokeWidth = 1.5..style = PaintingStyle.stroke);
+      }
+
+      // 2. Spouse
+      if (member.spouseId != null && _memberMap.containsKey(member.spouseId)) {
+        if (member.id < member.spouseId!) {
+           _graph.addEdge(
+             Node.Id(member.id), 
+             Node.Id(member.spouseId!), 
+             paint: Paint()..color = Colors.pinkAccent..strokeWidth = 2..style = PaintingStyle.stroke
+           );
+        }
       }
     }
 
-    _builder = BuchheimWalkerConfiguration()
-      ..siblingSeparation = (100)
-      ..levelSeparation = (100)
-      ..subtreeSeparation = (150)
-      ..orientation = (BuchheimWalkerConfiguration.ORIENTATION_TOP_BOTTOM);
+    _builder = SugiyamaConfiguration()
+      ..nodeSeparation = 30
+      ..levelSeparation = 80
+      ..orientation = SugiyamaConfiguration.ORIENTATION_TOP_BOTTOM;
   }
 
   @override
@@ -58,11 +69,11 @@ class _GraphTreeViewState extends State<GraphTreeView> {
     return InteractiveViewer(
       constrained: false,
       boundaryMargin: const EdgeInsets.all(100),
-      minScale: 0.01,
-      maxScale: 5.6,
+      minScale: 0.1,
+      maxScale: 5.0,
       child: GraphView(
         graph: _graph,
-        algorithm: BuchheimWalkerAlgorithm(_builder, TreeEdgeRenderer(_builder)),
+        algorithm: SugiyamaAlgorithm(_builder),
         paint: Paint()
           ..color = Colors.grey.shade400
           ..strokeWidth = 1.5
@@ -79,16 +90,34 @@ class _GraphTreeViewState extends State<GraphTreeView> {
   }
 
   Widget _buildNodeWidget(FamilyMember member) {
-    // Determine Color
     Color bgColor;
     Color borderColor;
+    bool isRe = false; // Son-in-law
+    bool isTruong = false; // Eldest Son
 
-    // Logic for styling
+    // 1. Determine Logic based on isClan
+    if (widget.isClan) {
+      // VN Clan Logic
+      final hasParents = (member.fatherId != null && _memberMap.containsKey(member.fatherId)) || 
+                         (member.motherId != null && _memberMap.containsKey(member.motherId));
+      
+      // A. Son-in-law (Rể): Male, No Parents in List, Has Spouse in List (who likely has parents/isRoot)
+      if (member.gender == 'male' && !hasParents && member.spouseId != null) {
+         isRe = true;
+      }
+
+      // B. Eldest Son (Trưởng): Male, Has Parents (Blood), BirthOrder == 1
+      // Note: 'isRoot' members are also effectively "Heads", but let's stick to children for "Chi Trưởng"
+      if (member.gender == 'male' && hasParents && member.birthOrder == 1) {
+         isTruong = true;
+      }
+    }
+
+    // 2. Styling
     if (member.isMaternal) {
       bgColor = Colors.purple.shade50;
       borderColor = Colors.purple.shade300;
     } else {
-      // Internal (Patrilineal)
       if (member.gender == 'male') {
          bgColor = Colors.blue.shade50;
          borderColor = Colors.blue.shade300;
@@ -98,49 +127,74 @@ class _GraphTreeViewState extends State<GraphTreeView> {
       }
     }
 
-    // Is Spose? (For now, spouses are drawn as separate nodes if they exist in the member list)
-    // Refinement: Ideally Spouses are grouped. 
-    // MVP: Draw everyone as node.
+    // Apply "Re" styling (Override)
+    if (isRe) {
+       bgColor = Colors.grey.shade100;
+       borderColor = Colors.grey.shade400; // Less prominent
+    }
 
     return InkWell(
       onTap: () => widget.onMemberTap(member),
       child: Container(
-        padding: const EdgeInsets.all(12),
+        width: 100,
+        padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           color: bgColor,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: borderColor, width: 2),
+          borderRadius: BorderRadius.circular(8),
+          border: isRe 
+             // Dashed border simulator (Solid for now, but Grey)
+             ? Border.all(color: borderColor, width: 1, style: BorderStyle.solid) 
+             : Border.all(color: borderColor, width: isTruong ? 3 : 2), // Bold for Truong
           boxShadow: [
              BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, 2))
           ],
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            CircleAvatar(
-              radius: 20,
-              backgroundColor: borderColor.withOpacity(0.2),
-              backgroundImage: (member.avatarUrl != null && member.avatarUrl!.isNotEmpty) 
-                  ? NetworkImage(member.avatarUrl!) 
-                  : null,
-              child: (member.avatarUrl == null || member.avatarUrl!.isEmpty)
-                  ? Icon(member.gender == 'male' ? Icons.face : Icons.face_3, color: borderColor)
-                  : null,
+            Stack(
+              children: [
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: borderColor.withOpacity(0.2),
+                  backgroundImage: (member.avatarUrl != null && member.avatarUrl!.isNotEmpty) 
+                      ? NetworkImage(member.avatarUrl!) 
+                      : null,
+                  child: (member.avatarUrl == null || member.avatarUrl!.isEmpty)
+                      ? Icon(member.gender == 'male' ? Icons.face : Icons.face_3, size: 20, color: borderColor)
+                      : null,
+                ),
+                if (isTruong)
+                  Positioned(
+                    right: -2, bottom: -2,
+                    child: Icon(Icons.star, color: Colors.orange, size: 12),
+                  ),
+              ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             Text(
               member.fullName,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: 10, 
+                fontWeight: isTruong ? FontWeight.w900 : FontWeight.bold,
+                color: isRe ? Colors.grey.shade700 : null,
+              ),
               textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
             if (member.title != null)
               Container(
-                margin: const EdgeInsets.only(top: 4),
+                margin: const EdgeInsets.only(top: 2),
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                color: Colors.amber.withOpacity(0.2),
-                child: Text(member.title!, style: const TextStyle(fontSize: 8)),
+                color: Colors.white.withOpacity(0.5),
+                child: Text(
+                  member.title!, 
+                  style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.brown.shade800)
+                ),
               ),
-            if (member.isMaternal) 
-               const Text('(Ngoại)', style: TextStyle(fontSize: 8, color: Colors.purple, fontStyle: FontStyle.italic)),
+             if (isRe)
+              const Text('(Rể)', style: TextStyle(fontSize: 8, fontStyle: FontStyle.italic, color: Colors.grey)),
           ],
         ),
       ),

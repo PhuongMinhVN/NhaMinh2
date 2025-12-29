@@ -30,6 +30,7 @@ class _JoinRequestPageState extends State<JoinRequestPage> {
   // Relationship Data
   String _relationType = 'child'; // child | spouse
   Map<String, dynamic>? _selectedRelative;
+  Map<String, String>? _newParentData; // NEW
   final _relativeSearchCtrl = TextEditingController();
   List<Map<String, dynamic>> _relativeSearchResults = [];
 
@@ -208,8 +209,10 @@ class _JoinRequestPageState extends State<JoinRequestPage> {
               ),
               const SizedBox(width: 12),
               Expanded(
-                 child: _selectedRelative == null 
-                   ? const Text('Chưa chọn người thân', style: TextStyle(color: Colors.red))
+                  child: _selectedRelative == null 
+                   ? (_newParentData == null 
+                       ? const Text('Chưa chọn người thân', style: TextStyle(color: Colors.red))
+                       : Text('Tạo Bố/Mẹ mới: ${_newParentData!['name']}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)))
                    : Text(_selectedRelative!['full_name'], style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
               )
             ],
@@ -230,8 +233,11 @@ class _JoinRequestPageState extends State<JoinRequestPage> {
             SizedBox(
               height: 150,
               child: ListView.builder(
-                itemCount: _relativeSearchResults.length,
+                itemCount: _relativeSearchResults.length + 1,
                 itemBuilder: (context, index) {
+                  if (index == _relativeSearchResults.length) {
+                     return _buildCreateParentButton();
+                  }
                   final m = _relativeSearchResults[index];
                   return ListTile(
                     dense: true,
@@ -241,13 +247,19 @@ class _JoinRequestPageState extends State<JoinRequestPage> {
                     onTap: () {
                       setState(() {
                          _selectedRelative = m;
-                         _relativeSearchResults.clear(); // Clear list after select
+                         _newParentData = null; 
+                         _relativeSearchResults.clear(); 
                          _relativeSearchCtrl.clear();
                       });
                     },
                   );
                 },
               ),
+            )
+          else 
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: _buildCreateParentButton(),
             ),
 
           const SizedBox(height: 32),
@@ -263,6 +275,47 @@ class _JoinRequestPageState extends State<JoinRequestPage> {
           )
         ],
       ),
+    );
+  }
+
+  Widget _buildCreateParentButton() {
+    if (_relationType != 'child') return const SizedBox.shrink();
+    return TextButton.icon(
+      onPressed: () {
+         final nameCtrl = TextEditingController();
+         String gender = 'male';
+         showDialog(context: context, builder: (c) => StatefulBuilder(builder: (ctx, st) => AlertDialog(
+           title: const Text('Tạo Bố/Mẹ mới'),
+           content: Column(
+             mainAxisSize: MainAxisSize.min,
+             children: [
+               TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Họ và tên')),
+               const SizedBox(height: 16),
+               Row(children: [
+                 const Text('Giới tính: '),
+                 ChoiceChip(label: const Text('Nam (Bố)'), selected: gender == 'male', onSelected: (v) => st(()=>gender='male')),
+                 const SizedBox(width: 8),
+                 ChoiceChip(label: const Text('Nữ (Mẹ)'), selected: gender == 'female', onSelected: (v) => st(()=>gender='female')),
+               ])
+             ],
+           ),
+           actions: [
+             TextButton(onPressed: ()=>Navigator.pop(c), child: const Text('Huỷ')),
+             ElevatedButton(onPressed: () {
+               if(nameCtrl.text.isNotEmpty) {
+                 setState(() {
+                   _newParentData = {'name': nameCtrl.text, 'gender': gender};
+                   _selectedRelative = null;
+                   _relativeSearchResults.clear();
+                 });
+                 Navigator.pop(c);
+               }
+             }, child: const Text('Chọn'))
+           ],
+         )));
+      },
+      icon: const Icon(Icons.person_add_alt),
+      label: const Text('Không tìm thấy? Nhấn để tạo mới cha/mẹ'),
     );
   }
 
@@ -326,24 +379,36 @@ class _JoinRequestPageState extends State<JoinRequestPage> {
 
   Future<void> _submitCreateRequest() async {
      if (!_formKey.currentState!.validate()) return;
-     if (_selectedRelative == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Vui lòng chọn người thân trong gia phả (Vợ/Chồng hoặc Cha/Mẹ).')));
+     if (_selectedRelative == null && _newParentData == null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Vui lòng chọn hoặc tạo người thân (Vợ/Chồng hoặc Cha/Mẹ).')));
         return;
      }
 
      setState(() => _isSubmitting = true);
 
      try {
-       await _repo.sendDetailedJoinRequest(
-         targetClanId: widget.clan.id,
-         type: 'create_new',
-         metadata: {
+       Map<String, dynamic> meta = {
            'full_name': _nameCtrl.text.trim(),
            'gender': _gender,
            'birth_date': _birthDate?.toIso8601String(),
-           'relation': _relationType,
-           'relative_id': _selectedRelative!['id']
-         }
+           'relation': _relationType, 
+       };
+       
+       int? targetPid;
+       
+       if (_selectedRelative != null) {
+          meta['relative_id'] = _selectedRelative!['id'];
+          if (_relationType == 'child') targetPid = _selectedRelative!['id'];
+       } else if (_newParentData != null) {
+          meta['new_parent_name'] = _newParentData!['name'];
+          meta['new_parent_gender'] = _newParentData!['gender'];
+       }
+
+       await _repo.sendDetailedJoinRequest(
+         targetClanId: widget.clan.id,
+         type: 'create_new',
+         targetParentId: targetPid,
+         metadata: meta
        );
        if (mounted) _showSuccess();
      } catch (e) {
