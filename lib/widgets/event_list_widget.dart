@@ -30,6 +30,7 @@ class _EventListWidgetState extends State<EventListWidget> {
   @override
   Widget build(BuildContext context) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
@@ -74,21 +75,102 @@ class _EventListWidgetState extends State<EventListWidget> {
               );
             }
 
-            return SizedBox(
-              height: 200, // Fixed height for horizontal list or similar
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                itemCount: events.length,
-                itemBuilder: (context, index) {
-                  final event = events[index];
-                  return _buildEventCard(context, event);
-                },
-              ),
+            // Split events
+            final importantEvents = events.where((e) => e.isImportant).toList();
+            final otherEvents = events.where((e) => !e.isImportant).toList();
+
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 1. Important Events (Big Cards)
+                if (importantEvents.isNotEmpty)
+                  SizedBox(
+                    height: 230, 
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      itemCount: importantEvents.length,
+                      itemBuilder: (context, index) {
+                        return _buildEventCard(context, importantEvents[index]);
+                      },
+                    ),
+                  ),
+
+                // 2. Other Events (Simple Links)
+                if (otherEvents.isNotEmpty) ...[
+                   if (importantEvents.isNotEmpty) const SizedBox(height: 16),
+                   Padding(
+                     padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                     child: Text(
+                       'Sự kiện khác:', 
+                       style: TextStyle(
+                         fontSize: 14, 
+                         fontWeight: FontWeight.bold, 
+                         color: Colors.grey.shade700
+                       )
+                     ),
+                   ),
+                   const SizedBox(height: 8),
+                   ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: otherEvents.length,
+                      separatorBuilder: (c, i) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        return _buildSimpleEventItem(context, otherEvents[index]);
+                      },
+                   ),
+                ],
+              ],
             );
           },
         ),
       ],
+    );
+  }
+
+  Widget _buildSimpleEventItem(BuildContext context, Event event) {
+    final date = event.nextOccurrenceSolar ?? DateTime.now();
+    final dateStr = DateFormat('dd/MM').format(date);
+    
+    return InkWell(
+      onTap: () {
+         Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => EventDetailPage(event: event),
+          ),
+        ).then((_) => refresh());
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12.0),
+        child: Row(
+          children: [
+            Container(
+               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+               decoration: BoxDecoration(
+                 color: Colors.grey.shade200,
+                 borderRadius: BorderRadius.circular(4)
+               ),
+               child: Text(dateStr, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                event.title, 
+                style: const TextStyle(
+                  color: Colors.blue, 
+                  decoration: TextDecoration.underline,
+                  fontSize: 15,
+                )
+              ),
+            ),
+            const Icon(Icons.arrow_forward_ios, size: 12, color: Colors.grey),
+          ],
+        ),
+      ),
     );
   }
 
@@ -134,53 +216,61 @@ class _EventListWidgetState extends State<EventListWidget> {
           padding: const EdgeInsets.all(12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // Badge: Family vs Clan
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: event.scope == EventScope.FAMILY 
-                      ? Colors.blue.withOpacity(0.1) 
-                      : Colors.purple.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
+                // Badge: Family vs Clan
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
                     color: event.scope == EventScope.FAMILY 
-                        ? Colors.blue.withOpacity(0.5) 
-                        : Colors.purple.withOpacity(0.5),
+                        ? Colors.blue.withOpacity(0.1) 
+                        : Colors.purple.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: event.scope == EventScope.FAMILY 
+                          ? Colors.blue.withOpacity(0.5) 
+                          : Colors.purple.withOpacity(0.5),
+                    ),
+                  ),
+                  child: Text(
+                    event.scope == EventScope.FAMILY ? 'Gia Đình' : 'Dòng Họ',
+                    style: TextStyle(
+                      fontSize: 10, 
+                      fontWeight: FontWeight.bold,
+                      color: event.scope == EventScope.FAMILY ? Colors.blue : Colors.purple,
+                    ),
                   ),
                 ),
-                child: Text(
-                  event.scope == EventScope.FAMILY ? 'Gia Đình' : 'Dòng Họ',
-                  style: TextStyle(
-                    fontSize: 10, 
-                    fontWeight: FontWeight.bold,
-                    color: event.scope == EventScope.FAMILY ? Colors.blue : Colors.purple,
-                  ),
+                Text(
+                  event.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                event.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-              const Spacer(),
-              Row(
-                children: [
-                  Icon(Icons.calendar_month, size: 16, color: statusColor),
-                  const SizedBox(width: 4),
-                  Text(
-                    '$dateStr/$yearStr',
-                    style: TextStyle(color: statusColor, fontWeight: FontWeight.w500),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                timeStatus,
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-              )
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.calendar_month, size: 16, color: statusColor),
+                        const SizedBox(width: 4),
+                        Flexible(
+                          child: Text(
+                            '$dateStr/$yearStr',
+                            style: TextStyle(color: statusColor, fontWeight: FontWeight.w500),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      timeStatus,
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    )
+                  ],
+                ),
             ],
           ),
         ),

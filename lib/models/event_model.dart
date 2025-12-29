@@ -18,6 +18,7 @@ class Event {
   final DateTime? nextOccurrenceSolar;
   final String createdBy;
   final bool requiresAttendance;
+  final bool isImportant;
   final DateTime createdAt;
 
   Event({
@@ -35,6 +36,7 @@ class Event {
     this.nextOccurrenceSolar,
     required this.createdBy,
     this.requiresAttendance = false,
+    this.isImportant = false,
     required this.createdAt,
   });
 
@@ -56,6 +58,7 @@ class Event {
           : null,
       createdBy: json['created_by'] ?? '',
       requiresAttendance: json['requires_attendance'] ?? false,
+      isImportant: json['is_important'] ?? false,
       createdAt: DateTime.parse(json['created_at']),
     );
   }
@@ -73,6 +76,7 @@ class Event {
       'year': year,
       'recurrence_type': recurrenceType.name,
       'requires_attendance': requiresAttendance,
+      'is_important': isImportant,
       'created_by': createdBy,
     };
   }

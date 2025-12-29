@@ -3,6 +3,8 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:image_picker/image_picker.dart';
 import '../repositories/clan_repository.dart';
 import '../models/clan.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'pages/join_request_page.dart';
 
 class ScanQrPage extends StatefulWidget {
   final bool returnScanData; 
@@ -52,13 +54,32 @@ class _ScanQrPageState extends State<ScanQrPage> {
 
       if (clan == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Mã QR không hợp lệ hoặc không tìm thấy dòng họ.'))
+          const SnackBar(content: Text('Mã QR không hợp lệ hoặc không tìm thấy dòng họ/gia đình.'))
         );
         _resumeScanning();
         return;
       }
 
-      _showJoinDialog(clan);
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) {
+          // Should not happen if logged in
+          _resumeScanning();
+          return;
+      }
+
+      // 1. IF CLAN -> Strict Permission Check
+      if (clan.type == 'clan') {
+         final hasPermission = await _repo.checkUserJoinPermissions(user.id);
+         if (!hasPermission) {
+             _showPermissionDeniedDialog();
+             return;
+         }
+         _showJoinDialog(clan, isClan: true);
+      } 
+      // 2. IF FAMILY -> Standard Join
+      else {
+         _showJoinDialog(clan, isClan: false);
+      }
 
     } catch (e) {
       if (mounted) {
@@ -66,6 +87,32 @@ class _ScanQrPageState extends State<ScanQrPage> {
          _resumeScanning();
       }
     }
+  }
+
+  void _showPermissionDeniedDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Không có quyền tham gia'),
+        content: const Text(
+          'Để tham gia vào Dòng tộc này, bạn cần có Gia phả riêng và giữ vai trò:\n'
+          '- Người tạo\n'
+          '- Tộc trưởng\n'
+          '- Hoặc Tộc phó\n\n'
+          'Vui lòng kiểm tra lại quyền hạn của bạn.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _resumeScanning();
+            },
+            child: const Text('Đã hiểu'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _pickImageFromGallery() async {
@@ -98,12 +145,12 @@ class _ScanQrPageState extends State<ScanQrPage> {
     _controller.start();
   }
 
-  void _showJoinDialog(Clan clan) {
+  void _showJoinDialog(Clan clan, {required bool isClan}) {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text('Tìm thấy Dòng họ'),
+        title: Text(isClan ? 'Tìm thấy Dòng họ' : 'Tìm thấy Gia đình'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -114,7 +161,7 @@ class _ScanQrPageState extends State<ScanQrPage> {
               Text('Mô tả: ${clan.description}'),
             ],
             const SizedBox(height: 16),
-            const Text('Bạn có muốn gửi yêu cầu gia nhập dòng họ này không?'),
+            const Text('Vui lòng xác thực danh tính của bạn trong gia phả để tiếp tục.'),
           ],
         ),
         actions: [
@@ -126,11 +173,19 @@ class _ScanQrPageState extends State<ScanQrPage> {
             child: const Text('Huỷ'),
           ),
           ElevatedButton(
-            onPressed: () async {
+            onPressed: () {
               Navigator.pop(context); // Close dialog
-              await _sendRequest(clan);
+              // Navigate to Join Request Page
+              Navigator.push(
+                context, 
+                MaterialPageRoute(builder: (_) => JoinRequestPage(clan: clan))
+              ).then((_) {
+                 // When returning, resume scanning if needed? Usually we pop back to dashboard from there.
+                 // But if they back out:
+                 // _resumeScanning(); // Maybe?
+              });
             },
-            child: const Text('Gửi yêu cầu'),
+            child: const Text('Tiếp tục'),
           ),
         ],
       ),

@@ -22,6 +22,7 @@ class _AddEventPageState extends State<AddEventPage> {
   bool _isLunar = true;
   bool _isRecurring = true;
   bool _requiresAttendance = false;
+  bool _isImportant = false;
   
   // Date Selection
   int _day = DateTime.now().day;
@@ -153,6 +154,7 @@ class _AddEventPageState extends State<AddEventPage> {
         recurrenceType: _isRecurring ? RecurrenceType.YEARLY : RecurrenceType.NONE,
         createdBy: user.id, // Ensure this is not null
         requiresAttendance: _requiresAttendance,
+        isImportant: _isImportant,
         createdAt: DateTime.now(),
       );
 
@@ -317,6 +319,13 @@ class _AddEventPageState extends State<AddEventPage> {
                 subtitle: const Text('Thành viên cần xác nhận tham gia'),
                 value: _requiresAttendance,
                 onChanged: (v) => setState(() => _requiresAttendance = v),
+              ),
+              SwitchListTile(
+                title: const Text('Sự kiện quan trọng'),
+                subtitle: const Text('Đánh dấu nổi bật trên màn hình chính'),
+                value: _isImportant,
+                activeColor: Colors.red,
+                onChanged: (v) => setState(() => _isImportant = v),
               ),
 
               const SizedBox(height: 32),

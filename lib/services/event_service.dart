@@ -2,9 +2,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:lunar/lunar.dart';
 import '../models/event_model.dart';
 import '../models/event_participant_model.dart';
+import 'notification_service.dart';
 
 class EventService {
   final SupabaseClient _supabase = Supabase.instance.client;
+  final _notificationService = NotificationService();
 
   /// Fetch events for the current user (Family & Clan)
   Future<List<Event>> getEvents() async {
@@ -44,7 +46,53 @@ class EventService {
         .select()
         .single();
     
-    return Event.fromJson(response);
+    final createdEvent = Event.fromJson(response);
+
+    // Trigger Notification (Await to ensure delivery)
+    await _notifyMembers(createdEvent);
+
+    return createdEvent;
+  }
+
+  /// Notify all members of the Clan/Family about the new event
+  Future<void> _notifyMembers(Event event) async {
+    if (event.clanId == null) return;
+
+    try {
+      // 1. Get all members of the clan/family
+      final res = await _supabase
+          .from('family_members')
+          .select('profile_id')
+          .eq('clan_id', event.clanId!);
+      
+      final memberIds = (res as List)
+          .map((row) => row['profile_id'])
+          .where((uid) => uid != null && uid != event.createdBy) // Safe filter
+          .cast<String>()
+          .toList();
+
+      if (memberIds.isEmpty) return;
+
+      // 2. Prepare Message
+      final String title = 'Sự kiện mới: ${event.title}';
+      final String dateStr = event.isLunar 
+          ? '${event.day}/${event.month} (Âm lịch)'
+          : '${event.day}/${event.month}/${event.year ?? DateTime.now().year}';
+      
+      final String message = '${event.scope == EventScope.CLAN ? "Dòng họ" : "Gia đình"} vừa có sự kiện mới vào ngày $dateStr. Hãy kiểm tra ngay!';
+
+      // 3. Send Notification
+      await _notificationService.sendBatchNotifications(
+        userIds: memberIds,
+        title: title,
+        message: message,
+        type: 'event_new',
+        relatedId: event.id,
+      );
+      
+    } catch (e) {
+      print('Error in _notifyMembers: $e');
+    }
   }
   
   /// Add participant to an event
@@ -131,3 +179,4 @@ class EventService {
     }
   }
 }
+

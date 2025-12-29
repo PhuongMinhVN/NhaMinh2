@@ -16,6 +16,12 @@ import 'widgets/event_list_widget.dart';
 import 'pages/events/add_event_page.dart';
 import 'scan_qr_page.dart';
 import 'notifications_page.dart';
+import 'package:screenshot/screenshot.dart';
+import 'package:gal/gal.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'dart:typed_data';
+import 'pages/join_request_page.dart';
+import 'repositories/clan_repository.dart';
 
 
 class DashboardPage extends StatefulWidget {
@@ -159,6 +165,13 @@ class _DashboardPageState extends State<DashboardPage> {
             tooltip: 'Tạo Gia Phả',
           ),
           IconButton(
+            icon: const Icon(Icons.qr_code_scanner),
+            onPressed: () {
+               Navigator.push(context, MaterialPageRoute(builder: (_) => const ScanQrPage()));
+            },
+            tooltip: 'Quét QR',
+          ),
+          IconButton(
             icon: const Icon(Icons.notifications_outlined),
             onPressed: () {
                Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsPage()));
@@ -245,7 +258,7 @@ class _DashboardPageState extends State<DashboardPage> {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       shadowColor: Colors.black12,
       child: Container(
-        height: 400, // Reduced height as EventList is horizontal
+        // height removed for dynamic sizing
         padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
@@ -253,6 +266,7 @@ class _DashboardPageState extends State<DashboardPage> {
           border: Border.all(color: Colors.brown.shade100),
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
@@ -297,9 +311,7 @@ class _DashboardPageState extends State<DashboardPage> {
             const Divider(height: 32, thickness: 1),
             
             // New Event List Widget
-            const Expanded(
-              child: EventListWidget(),
-            ),
+            const EventListWidget(),
           ],
         ),
       ),
@@ -549,15 +561,28 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   void _showSecuritySettingsDialog() async {
-    // 1. Fetch questions from DB
     showDialog(context: context, barrierDismissible: false, builder: (c) => const Center(child: CircularProgressIndicator()));
+    
     List<dynamic> questionBank = [];
+    List<dynamic> existingAnswers = []; // Check if user already has answers
+
     try {
+      // 1. Fetch Question Bank
       questionBank = await Supabase.instance.client.from('question_bank').select('content');
+      
+      // 2. Fetch User Answers
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user != null) {
+         existingAnswers = await Supabase.instance.client
+             .from('user_security_answers')
+             .select()
+             .eq('user_id', user.id);
+      }
+
       if (mounted) Navigator.pop(context); // Hide loading
     } catch (e) {
       if (mounted) Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('KHÔNG THỂ TẢI CÂU HỎI: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi tải dữ liệu: $e')));
       return;
     }
 
@@ -566,13 +591,105 @@ class _DashboardPageState extends State<DashboardPage> {
        return;
     }
 
-    // Prepare state
+    if (!mounted) return;
+
+    // A. SHOW VIEW MODE (Nếu đã có câu trả lời)
+    if (existingAnswers.isNotEmpty && existingAnswers.length >= 3) {
+       _showSecurityInfoViewDialog(existingAnswers);
+       return;
+    }
+
+    // B. SHOW SETUP MODE (Như cũ)
+    _showSecuritySetupDialog(questionBank);
+  }
+
+  // --- VIEW MODE ---
+  void _showSecurityInfoViewDialog(List<dynamic> answers) {
+    final screenshotController = ScreenshotController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        contentPadding: EdgeInsets.zero,
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // AREA TO CAPTURE
+              Screenshot(
+                controller: screenshotController,
+                child: Container(
+                  padding: const EdgeInsets.all(24),
+                  color: Colors.white,
+                  child: Column(
+                    children: [
+                       const Icon(Icons.security, size: 50, color: Colors.green),
+                       const SizedBox(height: 16),
+                       Text('BẢO MẬT TÀI KHOẢN', style: GoogleFonts.playfairDisplay(fontSize: 18, fontWeight: FontWeight.bold)),
+                       const SizedBox(height: 8),
+                       Text('Lưu lại ảnh này để khôi phục tài khoản khi cần.', style: TextStyle(fontSize: 12, color: Colors.grey[600]), textAlign: TextAlign.center),
+                       const Divider(height: 32),
+                       
+                       ...List.generate(answers.length, (i) {
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Câu hỏi ${i+1}: ${answers[i]['question']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                const SizedBox(height: 4),
+                                Text('Trả lời: ${answers[i]['answer']}', style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.w500)),
+                              ],
+                            ),
+                          );
+                       }),
+                       
+                       const SizedBox(height: 16),
+                       Text('User ID: ${Supabase.instance.client.auth.currentUser?.email}', style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Đóng')),
+          ElevatedButton.icon(
+            onPressed: () async {
+               // SAVE IMAGE LOGIC WITH GAL
+               try {
+                  final image = await screenshotController.capture();
+                  if (image == null) return;
+                  
+                  // Gal handles permissions automatically
+                  await Gal.putImageBytes(Uint8List.fromList(image), name: "NhaMinh_Security_${DateTime.now().millisecondsSinceEpoch}");
+                  
+                  if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã lưu ảnh vào Thư viện!'), backgroundColor: Colors.green));
+                  }
+               } catch (e) {
+                  if (e is GalException && e.type == GalExceptionType.accessDenied) {
+                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Vui lòng cấp quyền truy cập Thư viện ảnh.')));
+                  } else {
+                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: $e')));
+                  }
+               }
+            },
+            icon: const Icon(Icons.save_alt),
+            label: const Text('Lưu Ảnh'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- SETUP MODE (Tách ra từ hàm cũ) ---
+  void _showSecuritySetupDialog(List<dynamic> questionBank) {
     // We need 3 pairs of (Question, Answer)
     final questions = List<String?>.filled(3, null);
     final answersCtrl = List.generate(3, (_) => TextEditingController());
     final formKey = GlobalKey<FormState>();
-
-    if (!mounted) return;
 
     showDialog(
       context: context,
@@ -750,20 +867,6 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget _buildActionButtonsColumn() {
     return Column(
       children: [
-        // FEATURED SCAN QR BUTTON
-        _buildActionButton(
-          title: 'Quét QR Gia Nhập',
-          subtitle: 'Tham gia Dòng họ / Gia đình',
-          icon: Icons.qr_code_scanner_rounded,
-          color: const Color(0xFF673AB7), // Deep Purple
-          textColor: Colors.white,
-          delay: 300,
-          onTap: () {
-             Navigator.push(context, MaterialPageRoute(builder: (_) => const ScanQrPage()));
-          },
-        ),
-        const SizedBox(height: 16),
-
         _buildActionButton(
           title: 'Cây Gia Phả',
           subtitle: 'Xem sơ đồ toàn bộ dòng tộc',
@@ -1015,41 +1118,152 @@ class _DashboardPageState extends State<DashboardPage> {
         return Container(
           padding: const EdgeInsets.all(24),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Chọn loại Gia Phả', style: GoogleFonts.playfairDisplay(fontSize: 20, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 24),
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: Colors.brown.shade100, shape: BoxShape.circle),
-                  child: Icon(Icons.account_balance, color: Colors.brown.shade800),
-                ),
-                title: const Text('Gia Phả Dòng Họ', style: TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: const Text('Quy mô lớn, bao gồm nhiều chi, phành, đời.'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGenealogyWizard(isClan: true)));
-                },
-              ),
-              const Divider(),
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: Colors.green.shade100, shape: BoxShape.circle),
-                  child: Icon(Icons.cottage, color: Colors.green.shade800),
-                ),
-                title: const Text('Gia Phả Gia Đình', style: TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: const Text('Quy mô nhỏ, dành cho gia đình hạt nhân.'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGenealogyWizard(isClan: false)));
-                },
-              ),
-            ],
+             mainAxisSize: MainAxisSize.min,
+             children: [
+               Text('Tạo mới hoặc Tham gia', style: GoogleFonts.playfairDisplay(fontSize: 20, fontWeight: FontWeight.bold)),
+               const SizedBox(height: 24),
+               
+               // --- JOIN SECTION ---
+               const Text('Tham gia Gia phả có sẵn', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+               const SizedBox(height: 12),
+               Row(
+                 children: [
+                   Expanded(
+                     child: InkWell(
+                       onTap: () async {
+                          Navigator.pop(context);
+                          final id = await Navigator.push(context, MaterialPageRoute(builder: (_) => const ScanQrPage(returnScanData: true)));
+                          if (id != null && id is String) _processJoinCode(id);
+                       },
+                       child: Container(
+                         height: 100,
+                         decoration: BoxDecoration(border: Border.all(color: Colors.blue.shade200), borderRadius: BorderRadius.circular(12), color: Colors.blue.shade50),
+                         child: const Column(
+                           mainAxisAlignment: MainAxisAlignment.center,
+                           children: [
+                             Icon(Icons.qr_code_scanner, size: 32, color: Colors.blue),
+                             SizedBox(height: 8),
+                             Text('Quét mã QR', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                           ],
+                         ),
+                       ),
+                     ),
+                   ),
+                   const SizedBox(width: 16),
+                   Expanded(
+                     child: InkWell(
+                       onTap: () {
+                          Navigator.pop(context);
+                          _showJoinByIdDialog();
+                       },
+                       child: Container(
+                         height: 100,
+                          decoration: BoxDecoration(border: Border.all(color: Colors.orange.shade200), borderRadius: BorderRadius.circular(12), color: Colors.orange.shade50),
+                         child: const Column(
+                           mainAxisAlignment: MainAxisAlignment.center,
+                           children: [
+                             Icon(Icons.edit, size: 32, color: Colors.orange),
+                             SizedBox(height: 8),
+                             Text('Nhập Mã ID', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
+                           ],
+                         ),
+                       ),
+                     ),
+                   ),
+                 ],
+               ),
+               
+               const SizedBox(height: 24),
+               const Divider(),
+               const SizedBox(height: 12),
+               
+               // --- CREATE SECTION ---
+               const Text('Tạo mới Gia phả', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+               const SizedBox(height: 12),
+               ListTile(
+                 contentPadding: EdgeInsets.zero,
+                 leading: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.brown.shade100, shape: BoxShape.circle), child: Icon(Icons.account_balance, color: Colors.brown.shade800)),
+                 title: const Text('Gia Phả Dòng Họ'),
+                 subtitle: const Text('Quy mô lớn, nhiều chi/đời.'),
+                 onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGenealogyWizard(isClan: true)));
+                 },
+               ),
+               ListTile(
+                 contentPadding: EdgeInsets.zero,
+                 leading: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.green.shade100, shape: BoxShape.circle), child: Icon(Icons.cottage, color: Colors.green.shade800)),
+                 title: const Text('Gia Phả Gia Đình'),
+                 subtitle: const Text('Quy mô nhỏ (bố mẹ, con cái).'),
+                 onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGenealogyWizard(isClan: false)));
+                 },
+               ),
+             ],
           ),
         );
       },
     );
+  }
+
+  void _showJoinByIdDialog() {
+     final idCtrl = TextEditingController();
+     showDialog(
+       context: context,
+       builder: (context) => AlertDialog(
+         title: const Text('Nhập Mã Gia Phả'),
+         content: TextField(
+           controller: idCtrl,
+           decoration: const InputDecoration(labelText: 'Mã Gia Phả (UUID)', border: OutlineInputBorder(), hintText: 'Nhập mã được chia sẻ...'),
+         ),
+         actions: [
+           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Huỷ')),
+           ElevatedButton(
+             onPressed: () {
+                if (idCtrl.text.trim().isNotEmpty) {
+                   Navigator.pop(context);
+                   _processJoinCode(idCtrl.text.trim());
+                }
+             }, 
+             child: const Text('Tiếp tục'),
+           )
+         ],
+       ),
+     );
+  }
+
+  // Handle both QR and Manual ID
+  void _processJoinCode(String code) async {
+     // Check if code is CLAN ID
+     // Usually valid UUID or specific format.
+     // For now, assume code IS the clan ID.
+     // Navigate to JoinRequestPage to check validity and join.
+     
+     // Need to fetch Clan Name/Info first to show in JoinRequestPage? 
+     // JoinRequestPage requires a `Clan` object.
+     
+     showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));
+     
+     try {
+       // Code from QR might have prefix. Manual ID is likely raw ID.
+       String rawId = code;
+       if (code.startsWith('CLAN:')) {
+          rawId = code.substring(5);
+       }
+       
+       final clan = await ClanRepository().getClanById(rawId);
+       if (mounted) Navigator.pop(context); // hide loading
+       
+       if (clan != null) {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => JoinRequestPage(clan: clan)));
+       } else {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Không tìm thấy Gia phả với mã này.')));
+       }
+       
+     } catch (e) {
+       if (mounted) Navigator.pop(context);
+       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: $e')));
+     }
   }
 }

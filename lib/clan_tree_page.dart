@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:gal/gal.dart'; // Mobile Image Saver
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter/services.dart'; // Added
+import 'repositories/clan_repository.dart'; // Added
 import 'models/family_member.dart';
 import 'scan_qr_page.dart';
 import 'widgets/member_bottom_sheet.dart';
@@ -14,6 +17,8 @@ import 'dart:typed_data';
 import 'utils/stub_html.dart' if (dart.library.html) 'dart:html' as html; 
 import 'utils/relationship_calculator.dart';
 import 'widgets/merge_clan_wizard.dart';
+import 'pages/requests_list_page.dart';
+import 'widgets/graph_tree_view.dart';
 
 
 class ClanTreePage extends StatefulWidget {
@@ -71,10 +76,8 @@ class _ClanTreePageState extends State<ClanTreePage> {
         }
 
         // Calculate Generations
-        // 1. Map ID to Member
         final Map<int, FamilyMember> idMap = {for (var m in _members) m.id: m};
         
-        // 2. Recursive Generation Calculation
         int getGen(int id) {
            final m = idMap[id];
            if (m == null) return 1;
@@ -86,7 +89,6 @@ class _ClanTreePageState extends State<ClanTreePage> {
            } else if (m.motherId != null) {
               parentGen = getGen(m.motherId!);
            } else {
-              // No parents in tree -> Root (Gen 1)
               m.generationLevel = 1;
               return 1;
            }
@@ -95,34 +97,27 @@ class _ClanTreePageState extends State<ClanTreePage> {
            return m.generationLevel!;
         }
 
-        // 3. Compute for all
         for (var m in _members) {
            if (m.generationLevel == null) getGen(m.id);
         }
 
-        // Sort priority: Generation -> Rank (Title) -> Birth Order -> ID
         _members.sort((a, b) {
-          // 1. Generation (Ascending: Ancestor -> Descendant)
           final genA = a.generationLevel ?? 99;
           final genB = b.generationLevel ?? 99;
           if (genA != genB) return genA.compareTo(genB);
 
-          // 2. Title Rank
           int rankA = RelationshipCalculator.getRank(a.title);
           int rankB = RelationshipCalculator.getRank(b.title);
           if (rankA != rankB) return rankA.compareTo(rankB);
           
-          // 3. Birth Order
           if (a.birthOrder != null && b.birthOrder != null) {
              return a.birthOrder!.compareTo(b.birthOrder!);
           }
 
-          // 4. DOB
           if (a.birthDate != null && b.birthDate != null) {
             return a.birthDate!.compareTo(b.birthDate!);
           }
           
-          // 5. Fallback: Insertion Order
           return a.id.compareTo(b.id);
         });
 
@@ -134,6 +129,8 @@ class _ClanTreePageState extends State<ClanTreePage> {
     }
   }
 
+  bool _isGraphView = false; // State for View Mode
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -142,6 +139,12 @@ class _ClanTreePageState extends State<ClanTreePage> {
         backgroundColor: const Color(0xFF8B1A1A),
         foregroundColor: Colors.white,
         actions: [
+          // VIEW TOGGLE
+          IconButton(
+            icon: Icon(_isGraphView ? Icons.list : Icons.account_tree),
+            tooltip: _isGraphView ? 'Xem danh sách' : 'Xem sơ đồ',
+            onPressed: () => setState(() => _isGraphView = !_isGraphView),
+          ),
           IconButton(
             icon: const Icon(Icons.qr_code_2),
             onPressed: () => _showClanQr(context),
@@ -184,18 +187,20 @@ class _ClanTreePageState extends State<ClanTreePage> {
           ? const Center(child: CircularProgressIndicator())
           : _members.isEmpty
                ? _buildEmptyState()
-               : ListView.builder(
-                   padding: const EdgeInsets.all(16),
-                   itemCount: _members.length,
-                   itemBuilder: (context, index) {
-                     final member = _members[index];
-                     return _buildMemberCard(member);
-                   },
-                 ),
-      floatingActionButton: Column(
+               : _isGraphView 
+                   ? GraphTreeView(members: _members, onMemberTap: _showMemberDetails)
+                   : ListView.builder(
+                       padding: const EdgeInsets.all(16),
+                       itemCount: _members.length,
+                       itemBuilder: (context, index) {
+                         final member = _members[index];
+                         return _buildMemberCard(member);
+                       },
+                     ),
+       floatingActionButton: _isGraphView ? null : Column( // Hide FAB in Graph Mode to allow full view
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.end,
-        crossAxisAlignment: CrossAxisAlignment.end, // Align right
+        crossAxisAlignment: CrossAxisAlignment.end, 
         children: [
           // 1. Join Clan Button (Only for Family Owners)
           if (widget.clanType?.toLowerCase() == 'family' && _isOwner) ...[
@@ -284,6 +289,25 @@ class _ClanTreePageState extends State<ClanTreePage> {
             ),
             const SizedBox(height: 20),
             Text(widget.clanName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+              child: Row(
+                 mainAxisAlignment: MainAxisAlignment.center,
+                 children: [
+                   Text('ID: ${widget.clanId}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.blueGrey)),
+                   const SizedBox(width: 8),
+                   InkWell(
+                     onTap: () {
+                        Clipboard.setData(ClipboardData(text: widget.clanId));
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã sao chép ID')));
+                     },
+                     child: const Icon(Icons.copy, size: 18, color: Colors.blue),
+                   )
+                 ],
+              ),
+            ),
           ],
         ),
         actions: [
@@ -315,9 +339,29 @@ class _ClanTreePageState extends State<ClanTreePage> {
         html.Url.revokeObjectUrl(url);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã tải mã QR xuống!')));
       } else {
-        // For mobile, we'd need a plugin like 'gal' or 'image_gallery_saver'.
-        // For now, let's at least show it worked or tell user to screenshot.
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tính năng lưu ảnh trên Mobile đang được cập nhật. Vui lòng chụp màn hình.')));
+        // MOBILE SAVING
+        try {
+          // Check/Request permission
+          final hasAccess = await Gal.hasAccess();
+          if (!hasAccess) {
+             await Gal.requestAccess();
+          }
+
+          // Save
+          await Gal.putImageBytes(pngBytes, name: "QR_${widget.clanName}_${DateTime.now().millisecondsSinceEpoch}");
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã lưu mã QR vào Thư viện ảnh!'), backgroundColor: Colors.green));
+          }
+        } catch (e) {
+          if (mounted) {
+            if (e is GalException && e.type == GalExceptionType.accessDenied) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Vui lòng cấp quyền truy cập Thư viện ảnh.')));
+            } else {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi khi lưu ảnh: $e')));
+            }
+          }
+        }
       }
     } catch (e) {
       debugPrint('Save QR Error: $e');

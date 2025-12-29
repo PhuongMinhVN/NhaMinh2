@@ -5,6 +5,7 @@ class Clan {
   final String ownerId;
   final String? qrCode;
   final DateTime createdAt;
+  final String? type;
 
   Clan({
     required this.id,
@@ -13,6 +14,7 @@ class Clan {
     required this.ownerId,
     this.qrCode,
     required this.createdAt,
+    this.type,
   });
 
   factory Clan.fromJson(Map<String, dynamic> json) {
@@ -23,6 +25,7 @@ class Clan {
       ownerId: json['owner_id'],
       qrCode: json['qr_code'],
       createdAt: DateTime.parse(json['created_at']),
+      type: json['type'],
     );
   }
 }
