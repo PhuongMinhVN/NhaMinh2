@@ -429,8 +429,7 @@ class _JoinRequestPageState extends State<JoinRequestPage> {
           TextButton(
             onPressed: () {
               Navigator.pop(context); // close alert
-              Navigator.pop(context); // close page (back to dashboard or scan)
-              Navigator.pop(context); // close one more level if needed in scan flow?
+              Navigator.pop(context); // close page (back to dashboard)
             },
             child: const Text('Về trang chủ'),
           )

@@ -68,12 +68,8 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
           IconButton(
             icon: const Icon(Icons.qr_code_scanner),
-            onPressed: () async {
-               // Sửa: Đợi kết quả trả về từ màn hình Scan
-               final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => const ScanQrPage(returnScanData: true)));
-               if (result != null && result is String) {
-                 _processJoinCode(result);
-               }
+            onPressed: () {
+               Navigator.push(context, MaterialPageRoute(builder: (_) => const ScanQrPage()));
             },
             tooltip: 'Quét QR',
           ),
