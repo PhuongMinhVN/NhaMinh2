@@ -13,13 +13,31 @@ class EventService {
     try {
       final response = await _supabase
           .from('events')
-          .select()
+          .select('*, clans(name)')
           .order('next_occurrence_solar', ascending: true);
       
       final events = (response as List).map((e) => Event.fromJson(e)).toList();
       return events;
     } catch (e) {
       print('Error fetching events: $e');
+      rethrow;
+    }
+  }
+
+  /// Fetch events for a specific Clan
+  Future<List<Event>> getEventsByClan(String clanId) async {
+    try {
+      final response = await _supabase
+          .from('events')
+          .select('*, clans(name)')
+          .eq('clan_id', clanId)
+          .order('next_occurrence_solar', ascending: true);
+      
+      final events = (response as List).map((e) => Event.fromJson(e)).toList();
+      print('DEBUG: Fetched ${events.length} events for clan $clanId');
+      return events;
+    } catch (e) {
+      print('Error fetching clan events: $e');
       rethrow;
     }
   }
@@ -48,10 +66,35 @@ class EventService {
     
     final createdEvent = Event.fromJson(response);
 
-    // Trigger Notification is handled by SQL Trigger (handle_new_event_notification)
-    // Removed manual call to avoid double notifications.
+    // Trigger Notification manually to ensure delivery
+    await _notifyMembers(createdEvent);
 
     return createdEvent;
+  }
+
+  /// Update an existing event
+  Future<void> updateEvent(Event event) async {
+    final eventData = event.toJson();
+    
+    // Calculate new next occurrence
+    final nextSolar = calculateNextOccurrence(
+      event.day, 
+      event.month, 
+      event.isLunar, 
+      event.recurrenceType
+    );
+    eventData['next_occurrence_solar'] = nextSolar.toIso8601String();
+    
+    eventData.removeWhere((key, value) => value == null);
+    
+    // Remove ID from update data as it's the key
+    eventData.remove('id');
+    eventData.remove('created_at'); // Don't update creation time
+
+    await _supabase
+        .from('events')
+        .update(eventData)
+        .eq('id', event.id);
   }
 
   /// Notify all members of the Clan/Family about the new event

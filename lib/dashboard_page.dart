@@ -8,7 +8,9 @@ import 'package:lunar/lunar.dart';
 import 'models/clan_event.dart';
 import 'repositories/event_repository.dart';
 import 'clan_events_page.dart';
-import 'create_genealogy_wizard.dart'; 
+import 'clan_events_page.dart';
+import 'pages/create_clan_page.dart';
+import 'pages/create_family_simple_page.dart'; 
 import 'family_tree_welcome_page.dart';
 import 'widgets/event_list_widget.dart';
 import 'pages/events/add_event_page.dart';
@@ -21,6 +23,10 @@ import 'dart:typed_data';
 import 'pages/join_request_page.dart';
 import 'repositories/clan_repository.dart';
 import 'widgets/dashboard_action_button.dart';
+import 'pages/chat/chat_list_page.dart';
+import 'clan_list_page.dart';
+import 'models/clan.dart';
+import 'login_page.dart';
 
 
 class DashboardPage extends StatefulWidget {
@@ -32,21 +38,46 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   final user = Supabase.instance.client.auth.currentUser;
+  Key _eventListKey = UniqueKey(); // Key to force refresh
 
   Future<void> _signOut() async {
     await Supabase.instance.client.auth.signOut();
     if (mounted) {
-      Navigator.of(context).pushReplacementNamed('/'); 
+      // Use pushAndRemoveUntil to clear stack and go to Login
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => const LoginPage()),
+        (route) => false,
+      );
     }
   }
+
+  String _userName = 'Thành viên';
 
   @override
   void initState() {
     super.initState();
-    // Removed legacy profile check
+    _fetchUserName();
   }
 
-  // Legacy profile code removed
+  Future<void> _fetchUserName() async {
+    try {
+      if (user == null) return;
+      final data = await Supabase.instance.client
+          .from('profiles')
+          .select('full_name')
+          .eq('id', user!.id)
+          .maybeSingle();
+      if (data != null && data['full_name'] != null) {
+        if (mounted) {
+           setState(() {
+             _userName = data['full_name'];
+           });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error fetching name: $e');
+    }
+  }
 
 
   @override
@@ -62,16 +93,16 @@ class _DashboardPageState extends State<DashboardPage> {
         elevation: 0,
         actions: [
           IconButton(
+            icon: const Icon(Icons.qr_code_scanner),
+            onPressed: () {
+               _handleScan();
+            },
+            tooltip: 'Quét QR tham gia',
+          ),
+          IconButton(
             icon: const Icon(Icons.add),
             onPressed: _showCreateOptions,
             tooltip: 'Tạo Gia Phả',
-          ),
-          IconButton(
-            icon: const Icon(Icons.qr_code_scanner),
-            onPressed: () {
-               Navigator.push(context, MaterialPageRoute(builder: (_) => const ScanQrPage()));
-            },
-            tooltip: 'Quét QR',
           ),
           IconButton(
             icon: const Icon(Icons.notifications_outlined),
@@ -79,6 +110,13 @@ class _DashboardPageState extends State<DashboardPage> {
                Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsPage()));
             },
             tooltip: 'Thông báo',
+          ),
+          IconButton(
+            icon: const Icon(Icons.chat_bubble_outline),
+            onPressed: () {
+               Navigator.push(context, MaterialPageRoute(builder: (_) => ChatListPage()));
+            },
+            tooltip: 'Tin nhắn',
           ),
           IconButton(
             icon: const Icon(Icons.account_circle_outlined),
@@ -113,7 +151,7 @@ class _DashboardPageState extends State<DashboardPage> {
             children: [
               // Welcome Header
               Text(
-                'Xin chào, ${user?.email?.split('@')[0] ?? 'Thành viên'}!',
+                'Xin chào, $_userName!',
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.bold,
                   color: Theme.of(context).primaryColor,
@@ -212,7 +250,9 @@ class _DashboardPageState extends State<DashboardPage> {
                           MaterialPageRoute(builder: (_) => const AddEventPage()),
                         ).then((value) {
                           if (value == true) {
-                            setState(() {}); // Trigger rebuild/refresh if needed
+                            setState(() {
+                              _eventListKey = UniqueKey(); // Force refresh
+                            });
                           }
                         });
                       },
@@ -225,7 +265,7 @@ class _DashboardPageState extends State<DashboardPage> {
             const Divider(height: 32, thickness: 1),
             
             // New Event List Widget
-            const EventListWidget(),
+            EventListWidget(key: _eventListKey),
           ],
         ),
       ),
@@ -780,21 +820,152 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Widget _buildActionButtonsColumn() {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        DashboardActionButton(
-          title: 'Cây Gia Phả',
-          subtitle: 'Xem sơ đồ toàn bộ dòng tộc',
-          icon: Icons.account_tree_sharp,
-          color: const Color(0xFF8B1A1A), // Primary Red
-          delay: 500,
-          onTap: () {
-             Navigator.push(context, MaterialPageRoute(builder: (_) => const FamilyTreeWelcomePage()));
-          },
+        // SECTION 1: ACCESS (Truy Cập)
+        _buildSectionHeader('TRUY CẬP'),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _buildSquareButton(
+                title: 'Dòng Họ',
+                icon: Icons.account_balance_outlined,
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ClanListPage(isClan: true))),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: _buildSquareButton(
+                title: 'Nhà Mình',
+                icon: Icons.cottage_outlined,
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ClanListPage(isClan: false))),
+              ),
+            ),
+          ],
         ),
 
+        const SizedBox(height: 12),
+        const Divider(height: 1),
+        const SizedBox(height: 24),
 
+        // SECTION 2: CREATE (Khởi Tạo)
+        _buildSectionHeader('KHỞI TẠO'),
+        const SizedBox(height: 12),
+        InkWell(
+          onTap: () => _showCreateOptions(),
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
+            decoration: BoxDecoration(
+              color: const Color(0xFF8B1A1A), // Deep Red
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: const [
+                 BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 4)),
+              ],
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.add_circle_outline, color: Colors.white, size: 28),
+                const SizedBox(width: 16),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Khởi Tạo Gia Phả Mới', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
+                      Text('Bắt đầu hành trình xây dựng cội nguồn', style: TextStyle(fontSize: 12, color: Colors.white70)),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.arrow_forward, color: Colors.white, size: 18),
+              ],
+            ),
+          ),
+        ),
       ],
     );
+  }
+
+  Widget _buildSectionHeader(String title) {
+    return Text(
+      title,
+      style: GoogleFonts.inter(
+        fontSize: 12,
+        fontWeight: FontWeight.bold,
+        letterSpacing: 1.5,
+        color: Colors.grey.shade600,
+      ),
+    );
+  }
+
+  Widget _buildSquareButton({
+    required String title,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        decoration: BoxDecoration(
+          color: const Color(0xFF8B1A1A), // Deep Red
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: const [
+            BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 3)),
+          ],
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: Colors.white, size: 32),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionChip({required IconData icon, required String label, required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          color: Colors.brown.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.brown.shade200),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+             Icon(icon, color: Colors.brown),
+             const SizedBox(width: 8),
+             Text(label, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.brown)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _handleScan() async {
+    final scannedCode = await Navigator.push(
+      context, 
+      MaterialPageRoute(builder: (_) => const ScanQrPage(returnScanData: true))
+    );
+
+    if (scannedCode != null && scannedCode is String) {
+       _processJoinCode(scannedCode);
+    }
   }
 
   void _showInheritanceDialog() {
@@ -1029,7 +1200,7 @@ class _DashboardPageState extends State<DashboardPage> {
                  subtitle: const Text('Quy mô lớn, nhiều chi/đời.'),
                  onTap: () {
                     Navigator.pop(context);
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGenealogyWizard(isClan: true)));
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateClanPage()));
                  },
                ),
                ListTile(
@@ -1039,7 +1210,7 @@ class _DashboardPageState extends State<DashboardPage> {
                  subtitle: const Text('Quy mô nhỏ (bố mẹ, con cái).'),
                  onTap: () {
                     Navigator.pop(context);
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateGenealogyWizard(isClan: false)));
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const CreateFamilySimplePage()));
                  },
                ),
              ],

@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'login_page.dart';
+import 'dashboard_page.dart';
 
 // --- CẤU HÌNH KẾT NỐI (Từ thông tin bạn cung cấp) ---
 const String DEFAULT_PROJECT_URL = 'https://dpfyflwxvbvnckctwhyd.supabase.co';
@@ -88,7 +89,9 @@ class GiaPhaApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const LoginPage(), // Vào thẳng màn hình đăng nhập
+      home: Supabase.instance.client.auth.currentUser != null 
+          ? const DashboardPage() 
+          : const LoginPage(),
     );
   }
 }

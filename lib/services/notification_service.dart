@@ -15,7 +15,7 @@ class NotificationService {
       await _supabase.from('notifications').insert({
         'user_id': userId,
         'title': title,
-        'message': message,
+        'body': message,
         'type': type,
         'related_id': relatedId,
         'is_read': false,
@@ -40,7 +40,7 @@ class NotificationService {
     final List<Map<String, dynamic>> payload = userIds.map((uid) => {
       'user_id': uid,
       'title': title,
-      'message': message,
+      'body': message,
       'type': type,
       'related_id': relatedId,
       'is_read': false,

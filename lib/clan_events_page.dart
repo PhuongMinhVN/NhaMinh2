@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:lunar/lunar.dart';
-import '../models/clan_event.dart';
-import '../repositories/event_repository.dart';
+import '../models/event_model.dart';
+import '../services/event_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ClanEventsPage extends StatefulWidget {
   const ClanEventsPage({super.key});
@@ -13,8 +14,9 @@ class ClanEventsPage extends StatefulWidget {
 }
 
 class _ClanEventsPageState extends State<ClanEventsPage> {
-  final _repo = EventRepository();
-  List<ClanEvent> _events = [];
+  final _service = EventService();
+  final _currentUser = Supabase.instance.client.auth.currentUser;
+  List<Event> _events = [];
   bool _isLoading = true;
 
   @override
@@ -25,7 +27,7 @@ class _ClanEventsPageState extends State<ClanEventsPage> {
 
   Future<void> _loadEvents() async {
     try {
-      final events = await _repo.fetchUpcomingEvents();
+      final events = await _service.getEvents();
       setState(() {
         _events = events;
         _isLoading = false;
@@ -39,18 +41,18 @@ class _ClanEventsPageState extends State<ClanEventsPage> {
   void _showAddEventDialog() {
     final titleCtrl = TextEditingController();
     final descCtrl = TextEditingController();
-    final locationCtrl = TextEditingController();
-    
+    // Local variables for dialog state
     DateTime selectedDate = DateTime.now();
-    bool isLunar = true; // Mặc định là Âm lịch cho giỗ chạp
-    String type = 'annual'; // Mặc định là hàng năm
+    bool isLunar = true; 
+    RecurrenceType recurrence = RecurrenceType.YEARLY; // Default annual
+    EventScope scope = EventScope.CLAN; // Default Clan
 
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setStateDialog) {
           return AlertDialog(
-            title: const Text('Thêm sự kiện dòng họ'),
+            title: const Text('Thêm sự kiện'),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -87,24 +89,34 @@ class _ClanEventsPageState extends State<ClanEventsPage> {
                   // Lunar Toggle
                   SwitchListTile(
                     title: const Text('Sử dụng Lịch Âm'),
-                    subtitle: isLunar ? const Text('Sẽ tự động quy đổi sang Dương lịch hàng năm') : null,
+                    subtitle: isLunar ? const Text('Sẽ tự động quy đổi sang Dương lịch') : null,
                     value: isLunar,
                     onChanged: (val) => setStateDialog(() => isLunar = val),
                   ),
 
-                  // Type Dropdown
-                  DropdownButtonFormField<String>(
-                    value: type,
-                    decoration: const InputDecoration(labelText: 'Loại sự kiện'),
+                  // Recurrence Dropdown
+                  DropdownButtonFormField<RecurrenceType>(
+                    value: recurrence,
+                    decoration: const InputDecoration(labelText: 'Lặp lại'),
                     items: const [
-                       DropdownMenuItem(value: 'annual', child: Text('Hàng năm (Giỗ chạp)')),
-                       DropdownMenuItem(value: 'one_time', child: Text('Một lần (Họp mặt)')),
+                       DropdownMenuItem(value: RecurrenceType.YEARLY, child: Text('Hàng năm (Giỗ chạp)')),
+                       DropdownMenuItem(value: RecurrenceType.NONE, child: Text('Một lần (Họp mặt)')),
                     ],
-                    onChanged: (val) => setStateDialog(() => type = val!),
+                    onChanged: (val) => setStateDialog(() => recurrence = val!),
                   ),
                   
-                  TextField(controller: locationCtrl, decoration: const InputDecoration(labelText: 'Địa điểm')),
-                  TextField(controller: descCtrl, decoration: const InputDecoration(labelText: 'Mô tả'), maxLines: 3),
+                  // Scope Dropdown
+                  DropdownButtonFormField<EventScope>(
+                    value: scope,
+                    decoration: const InputDecoration(labelText: 'Phạm vi'),
+                    items: const [
+                       DropdownMenuItem(value: EventScope.CLAN, child: Text('Dòng Họ')),
+                       DropdownMenuItem(value: EventScope.FAMILY, child: Text('Gia Đình')),
+                    ],
+                    onChanged: (val) => setStateDialog(() => scope = val!),
+                  ),
+
+                  TextField(controller: descCtrl, decoration: const InputDecoration(labelText: 'Mô tả/Địa điểm'), maxLines: 2),
                 ],
               ),
             ),
@@ -113,15 +125,24 @@ class _ClanEventsPageState extends State<ClanEventsPage> {
               ElevatedButton(
                 onPressed: () async {
                   if (titleCtrl.text.isEmpty) return;
+                  if (_currentUser == null) return;
+                  
                   try {
-                    await _repo.addEvent(
-                      titleCtrl.text,
-                      selectedDate,
-                      isLunar,
-                      type,
-                      descCtrl.text,
-                      locationCtrl.text
-                    );
+                    // Re-instantiate clearly
+                    await _service.createEvent(Event(
+                      id: '', 
+                      title: titleCtrl.text,
+                      description: descCtrl.text,
+                      scope: scope,
+                      isLunar: isLunar,
+                      day: selectedDate.day,
+                      month: selectedDate.month,
+                      year: selectedDate.year, // Important for one-time events
+                      recurrenceType: recurrence,
+                      createdBy: _currentUser!.id,
+                      createdAt: DateTime.now(),
+                    ));
+
                     Navigator.pop(context);
                     _loadEvents(); // Reload
                   } catch (e) {
@@ -141,7 +162,7 @@ class _ClanEventsPageState extends State<ClanEventsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Việc Dòng Họ', style: GoogleFonts.playfairDisplay(fontWeight: FontWeight.bold)),
+        title: Text('Sự Kiện & Giỗ Chạp', style: GoogleFonts.playfairDisplay(fontWeight: FontWeight.bold)),
         centerTitle: true,
         actions: [
           IconButton(onPressed: _showAddEventDialog, icon: const Icon(Icons.add_circle_outline))
@@ -162,20 +183,36 @@ class _ClanEventsPageState extends State<ClanEventsPage> {
     );
   }
 
-  Widget _buildEventCard(ClanEvent event) {
+  Widget _buildEventCard(Event event) {
     // Format Display Date
-    String dateDisplay = DateFormat('dd/MM/yyyy').format(event.upcomingDate!);
+    final date = event.nextOccurrenceSolar ?? DateTime.now();
+    String dateDisplay = DateFormat('dd/MM/yyyy').format(date);
     String lunarInfo = '';
     
     if (event.isLunar) {
-      // Show original lunar date
-      // Convert stored date to Lunar to show day/month
-      final lunar = Lunar.fromDate(event.eventDate); // Assuming stored is lunar-like
-      // Or better, just show the day/month from stored date if we treat it as lunar
-      lunarInfo = '(Âm lịch: ${event.eventDate.day}/${event.eventDate.month})';
+      lunarInfo = '(Âm lịch: ${event.day}/${event.month})';
     }
 
-    final isUrgent = event.daysUntil! <= 7;
+    final diff = date.difference(DateTime.now()).inDays;
+    final isUrgent = diff <= 7 && diff >= 0;
+    
+    String timeStatus;
+    Color statusColor;
+    Color bgColor;
+
+    if (diff < 0) {
+      timeStatus = 'Đã qua';
+      statusColor = Colors.grey;
+      bgColor = Colors.grey.shade100;
+    } else if (diff == 0) {
+      timeStatus = 'Hôm nay';
+      statusColor = Colors.red;
+      bgColor = Colors.red.shade50;
+    } else {
+      timeStatus = 'Còn $diff ngày';
+      statusColor = isUrgent ? Colors.orange : Colors.green;
+      bgColor = isUrgent ? Colors.orange.shade50 : Colors.green.shade50;
+    }
 
     return Card(
       elevation: 2,
@@ -190,21 +227,39 @@ class _ClanEventsPageState extends State<ClanEventsPage> {
                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                children: [
                  Expanded(
-                   child: Text(
-                     event.title, 
-                     style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.brown.shade900)
+                   child: Column(
+                     crossAxisAlignment: CrossAxisAlignment.start,
+                     children: [
+                       Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: event.scope == EventScope.CLAN ? Colors.purple.shade50 : Colors.blue.shade50,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: event.scope == EventScope.CLAN ? Colors.purple.shade200 : Colors.blue.shade200)
+                          ),
+                          child: Text(
+                            event.scope == EventScope.CLAN ? 'Dòng Họ' : 'Gia Đình',
+                            style: TextStyle(fontSize: 10, color: event.scope == EventScope.CLAN ? Colors.purple : Colors.blue, fontWeight: FontWeight.bold),
+                          ),
+                       ),
+                       const SizedBox(height: 4),
+                       Text(
+                         event.title, 
+                         style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.brown.shade900)
+                       ),
+                     ],
                    ),
                  ),
                  Container(
                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                    decoration: BoxDecoration(
-                     color: isUrgent ? Colors.red.shade100 : Colors.green.shade100,
+                     color: bgColor,
                      borderRadius: BorderRadius.circular(20),
                    ),
                    child: Text(
-                     event.daysUntil == 0 ? 'Hôm nay' : 'Còn ${event.daysUntil} ngày',
+                     timeStatus,
                      style: TextStyle(
-                       color: isUrgent ? Colors.red.shade800 : Colors.green.shade800,
+                       color: statusColor,
                        fontWeight: FontWeight.bold,
                        fontSize: 12
                      ),
@@ -223,16 +278,6 @@ class _ClanEventsPageState extends State<ClanEventsPage> {
                  ),
                ],
              ),
-             if (event.location != null) ...[
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Icon(Icons.location_on, size: 16, color: Colors.grey.shade600),
-                    const SizedBox(width: 8),
-                    Text(event.location!),
-                  ],
-                ),
-             ],
              if (event.description != null && event.description!.isNotEmpty) ...[
                const Divider(height: 24),
                Text(event.description!, style: TextStyle(color: Colors.grey.shade800)),

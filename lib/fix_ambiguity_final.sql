@@ -1,9 +1,9 @@
 -- FIX: Drop overloaded functions to resolve "Multiple Choices" error (PGRST203)
-DROP FUNCTION IF EXISTS public.approve_clan_join_request(uuid);
 DROP FUNCTION IF EXISTS public.approve_clan_join_request(bigint);
 
+
 -- Recreate function with BIGINT signature (Assuming clan_join_requests.id is BIGINT/SERIAL)
-CREATE OR REPLACE FUNCTION approve_clan_join_request(request_id BIGINT)
+CREATE OR REPLACE FUNCTION approve_clan_join_request(request_id UUID)
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER

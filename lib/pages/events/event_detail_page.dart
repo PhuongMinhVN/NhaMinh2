@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart'; // For auth check
 import 'package:flutter/services.dart'; // For Clipboard
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'add_event_page.dart'; // Added import
 import '../../models/event_model.dart';
 import '../../models/event_participant_model.dart';
 import '../../services/event_service.dart';
@@ -69,6 +73,92 @@ Vui lòng xác nhận tham gia trên ứng dụng "Việc Họ".
     }
   }
 
+  Future<void> _exportPdf() async {
+    final pdf = pw.Document();
+    
+    // Get latest participants
+    final participants = await _participantsFuture;
+    final dateStr = widget.event.nextOccurrenceSolar != null 
+        ? DateFormat('dd/MM/yyyy').format(widget.event.nextOccurrenceSolar!) 
+        : 'Chưa xác định';
+
+    // Font support for Vietnamese is tricky in PDF. 
+    // Usually need to load a custom font. For simplicity in this demo, 
+    // we assume standard font or try to load one. 
+    // Printing package standard fonts might miss specific VN chars.
+    // Ideally we load a font asset.
+    final font = await PdfGoogleFonts.robotoRegular();
+    final fontBold = await PdfGoogleFonts.robotoBold();
+
+    pdf.addPage(
+      pw.Page(
+        build: (pw.Context context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Header(
+                level: 0,
+                child: pw.Text('CHI TIẾT SỰ KIỆN', style: pw.TextStyle(font: fontBold, fontSize: 24)),
+              ),
+              pw.SizedBox(height: 20),
+              pw.Text('Tiêu đề: ${widget.event.title}', style: pw.TextStyle(font: font, fontSize: 18)),
+              pw.SizedBox(height: 10),
+              pw.Text('Thời gian: $dateStr ${widget.event.isLunar ? "(Dương lịch) - [${widget.event.day}/${widget.event.month} Âm]" : ""}', style: pw.TextStyle(font: font, fontSize: 14)),
+              pw.SizedBox(height: 10),
+              pw.Text('Phạm vi: ${widget.event.scope == EventScope.FAMILY ? "Gia Đình" : "Dòng Họ"}', style: pw.TextStyle(font: font, fontSize: 14)),
+              if (widget.event.description != null) ...[
+                pw.SizedBox(height: 10),
+                pw.Text('Mô tả: ${widget.event.description}', style: pw.TextStyle(font: font, fontSize: 14)),
+              ],
+              pw.SizedBox(height: 30),
+              pw.Divider(),
+              pw.SizedBox(height: 10),
+              pw.Text('DANH SÁCH THAM GIA', style: pw.TextStyle(font: fontBold, fontSize: 16)),
+              pw.SizedBox(height: 10),
+              pw.Table.fromTextArray(
+                context: context,
+                border: null,
+                headerStyle: pw.TextStyle(font: fontBold),
+                cellStyle: pw.TextStyle(font: font),
+                headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+                headers: <String>['STT', 'Tên thành viên', 'Vai trò', 'Trạng thái'],
+                data: List<List<String>>.generate(
+                  participants.length,
+                  (index) {
+                    final p = participants[index];
+                    String status = 'Chờ xác nhận';
+                    if (p.status == ParticipantStatus.ACCEPTED) status = 'Tham gia';
+                    if (p.status == ParticipantStatus.REJECTED) status = 'Từ chối';
+                    
+                    String role = 'Tham dự';
+                    if (p.role == ParticipantRole.ASSIGNEE) role = 'Được giao việc';
+
+                    return [
+                      (index + 1).toString(),
+                      p.userFullName ?? 'Ẩn danh',
+                      role,
+                      status
+                    ];
+                  },
+                ),
+              ),
+              if (participants.isEmpty)
+                pw.Padding(
+                  padding: const pw.EdgeInsets.only(top: 10),
+                  child: pw.Text('Chưa có thành viên nào đăng ký.', style: pw.TextStyle(font: font, fontStyle: pw.FontStyle.italic)),
+                )
+            ],
+          );
+        },
+      ),
+    );
+
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => pdf.save(),
+      name: 'SuKien_${widget.event.title}.pdf',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // Display Date
@@ -80,6 +170,37 @@ Vui lòng xác nhận tham gia trên ứng dụng "Việc Họ".
       appBar: AppBar(
         title: const Text('Chi Tiết Sự Kiện'),
         actions: [
+          // Edit button for creator
+          if (widget.event.createdBy == _userId)
+            IconButton(
+              icon: const Icon(Icons.edit),
+              tooltip: 'Chỉnh sửa sự kiện',
+              onPressed: () async {
+                 // Convert existing event to AddEventPage for editing
+                 
+                 // Import AddEventPage first if not present
+                 // Assuming it's in '../../pages/events/add_event_page.dart' which is same dir relative to detail page which is deeper? No, detail is in pages/events too.
+                 
+                 final result = await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => AddEventPage(event: widget.event)),
+                 );
+                 
+                 if (result == true) {
+                    // Refresh details?
+                    // Ideally we should reload the event. 
+                    // But EventDetailPage receives 'Event' in constructor. 
+                    // We might need to fetch updated event or just pop back to list to refresh.
+                    // For now, let's pop with result true so list refreshes.
+                    if (mounted) Navigator.pop(context, true);
+                 }
+              },
+            ),
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf),
+            tooltip: 'Xuất PDF',
+            onPressed: _exportPdf,
+          ),
           IconButton(
             icon: const Icon(Icons.copy),
             tooltip: 'Sao chép nội dung',
@@ -126,7 +247,13 @@ Vui lòng xác nhận tham gia trên ứng dụng "Việc Họ".
             const SizedBox(height: 24),
             
             // Info Cards
-            _buildInfoRow(Icons.calendar_today, 'Thời gian', '$dateStr ${widget.event.isLunar ? "(Âm lịch)" : ""}'),
+            _buildInfoRow(
+              Icons.calendar_today, 
+              'Thời gian', 
+              widget.event.isLunar 
+                  ? '$dateStr (Dương lịch)\nNgày gốc: ${widget.event.day}/${widget.event.month} (Âm lịch)'
+                  : '$dateStr'
+            ),
             const SizedBox(height: 16),
             _buildInfoRow(Icons.description, 'Mô tả', widget.event.description ?? "Không có mô tả chi tiết."),
              const SizedBox(height: 16),
@@ -137,8 +264,8 @@ Vui lòng xác nhận tham gia trên ứng dụng "Việc Họ".
             const SizedBox(height: 16),
             
             // Participants Section
-            if (widget.event.requiresAttendance) ...[
-              Text(
+            // Always show attendance for all events as requested
+               Text(
                 'Danh sách tham gia',
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
               ),
@@ -189,7 +316,6 @@ Vui lòng xác nhận tham gia trên ứng dụng "Việc Họ".
                   );
                 },
               ),
-            ],
           ],
         ),
       ),

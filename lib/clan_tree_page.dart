@@ -1,10 +1,11 @@
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:gal/gal.dart'; // Mobile Image Saver
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter/services.dart'; // Added
-import 'repositories/clan_repository.dart'; // Added
+import 'pages/notifications_page.dart';
 import 'models/family_member.dart';
 import 'scan_qr_page.dart';
 import 'widgets/member_bottom_sheet.dart';
@@ -19,6 +20,8 @@ import 'utils/relationship_calculator.dart';
 import 'widgets/merge_clan_wizard.dart';
 import 'pages/requests_list_page.dart';
 import 'widgets/graph_tree_view.dart';
+import 'pages/member_chat_page.dart'; // Updated to use new Chat Page
+import 'widgets/family_calendar.dart'; // Added Calendar Widget
 
 
 class ClanTreePage extends StatefulWidget {
@@ -39,18 +42,29 @@ class ClanTreePage extends StatefulWidget {
   State<ClanTreePage> createState() => _ClanTreePageState();
 }
 
-class _ClanTreePageState extends State<ClanTreePage> {
+class _ClanTreePageState extends State<ClanTreePage> with SingleTickerProviderStateMixin {
   final GlobalKey _qrKey = GlobalKey();
+  late TabController _tabController;
+
   List<FamilyMember> _members = [];
   bool _isLoading = true;
   String? _currentUserTitle;
   bool _isOwner = false;
   String? _currentUserId;
 
+  bool _isGraphView = false; // State for View Mode
+
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _fetchMembers();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchMembers() async {
@@ -75,7 +89,18 @@ class _ClanTreePageState extends State<ClanTreePage> {
            _currentUserTitle = myMemberRecord.title;
         }
 
-        // Calculate Generations
+        // Calculate Generations and Sort
+        _calculateGenerationsAndSort();
+        
+        _isLoading = false;
+      });
+    } catch (e) {
+      debugPrint('Error fetching members: $e');
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _calculateGenerationsAndSort() {
         final Map<int, FamilyMember> idMap = {for (var m in _members) m.id: m};
         
         int getGen(int id) {
@@ -120,16 +145,7 @@ class _ClanTreePageState extends State<ClanTreePage> {
           
           return a.id.compareTo(b.id);
         });
-
-        _isLoading = false;
-      });
-    } catch (e) {
-      debugPrint('Error fetching members: $e');
-      setState(() => _isLoading = false);
-    }
   }
-
-  bool _isGraphView = false; // State for View Mode
 
   @override
   Widget build(BuildContext context) {
@@ -138,106 +154,85 @@ class _ClanTreePageState extends State<ClanTreePage> {
         title: Text(widget.clanName),
         backgroundColor: const Color(0xFF8B1A1A),
         foregroundColor: Colors.white,
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorWeight: 4,
+          labelColor: Colors.amber,
+          unselectedLabelColor: Colors.white70,
+          labelStyle: GoogleFonts.playfairDisplay(fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 1.0),
+          unselectedLabelStyle: GoogleFonts.playfairDisplay(fontSize: 16, fontWeight: FontWeight.normal),
+          tabs: const [
+            Tab(text: 'SỰ KIỆN & LỊCH', icon: Icon(Icons.calendar_month, size: 28)),
+            Tab(text: 'THÀNH VIÊN', icon: Icon(Icons.people, size: 28)),
+          ],
+        ),
         actions: [
-          // VIEW TOGGLE
           IconButton(
             icon: Icon(_isGraphView ? Icons.list : Icons.account_tree),
             tooltip: _isGraphView ? 'Xem danh sách' : 'Xem sơ đồ',
             onPressed: () => setState(() => _isGraphView = !_isGraphView),
           ),
           IconButton(
-            icon: const Icon(Icons.qr_code_2),
-            onPressed: () => _showClanQr(context),
-            tooltip: 'Mã QR Dòng họ',
+             icon: const Icon(Icons.notifications_outlined),
+             tooltip: 'Thông báo',
+             onPressed: () {
+                // Show Notifications Page
+               Navigator.push(context, MaterialPageRoute(builder: (_) => NotificationsPage(clanId: widget.clanId)));
+             },
           ),
           PopupMenuButton<String>(
               onSelected: (v) {
                 if (v == 'merge') _showMergeDialog();
+                if (v == 'qr') _showClanQr(context);
                 if (v == 'leave') _leaveClan();
               },
               itemBuilder: (context) => [
-                if (_isOwner)
-                  const PopupMenuItem(
-                    value: 'merge',
-                    child: Row(
-                      children: [
-                        Icon(Icons.merge_type, color: Colors.blueGrey),
-                        SizedBox(width: 8),
-                        Text('Gộp vào Dòng họ khác'),
-                      ],
-                    ),
-                  ),
-                if (!_isOwner)
-                  const PopupMenuItem(
-                    value: 'leave',
-                    child: Row(
-                      children: [
-                        Icon(Icons.exit_to_app, color: Colors.redAccent),
-                        SizedBox(width: 8),
-                        Text('Rời Gia Phả', style: TextStyle(color: Colors.redAccent)),
-                      ],
-                    ),
-                  ),
+                const PopupMenuItem(value: 'qr', child: Text('Mã QR Gia Phả')),
+                if (_isOwner) const PopupMenuItem(value: 'merge', child: Text('Gộp Dòng Họ')),
+                if (!_isOwner) const PopupMenuItem(value: 'leave', child: Text('Rời Gia Phả', style: TextStyle(color: Colors.red))),
               ],
             ),
-          const SizedBox(width: 8),
         ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _members.isEmpty
-               ? _buildEmptyState()
-               : _isGraphView 
-                   ? GraphTreeView(
-                       members: _members, 
-                       onMemberTap: _showMemberDetails,
-                       isClan: widget.clanType == 'clan',
-                     )
-                   : ListView.builder(
-                       padding: const EdgeInsets.all(16),
-                       itemCount: _members.length,
-                       itemBuilder: (context, index) {
-                         final member = _members[index];
-                         return _buildMemberCard(member);
-                       },
-                     ),
-       floatingActionButton: _isGraphView ? null : Column( // Hide FAB in Graph Mode to allow full view
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.end,
-        crossAxisAlignment: CrossAxisAlignment.end, 
-        children: [
-          // 1. Join Clan Button (Only for Family Owners)
-          if (widget.clanType?.toLowerCase() == 'family' && _isOwner) ...[
-             FloatingActionButton.extended(
-              heroTag: 'join_clan',
-              onPressed: _showMergeDialog, 
-              label: const Text('Gia nhập Dòng họ'),
-              icon: const Icon(Icons.group_add),
-              backgroundColor: const Color(0xFF8B1A1A),
-            ),
-            const SizedBox(height: 12),
-          ],
-          
-          // 2. Scan QR
-          FloatingActionButton.small(
-            heroTag: 'scan_invite',
-            onPressed: _handleQrScan,
-            backgroundColor: Colors.white,
-            tooltip: 'Quét QR mời thành viên',
-            child: const Icon(Icons.qr_code_scanner, color: Color(0xFF8B1A1A)),
-          ),
-          const SizedBox(height: 12),
+          : TabBarView(
+              controller: _tabController,
+              children: [
+                // TAB 1: EVENTS (Now First)
+                FamilyCalendar(clanId: widget.clanId),
 
-          // 3. Add Member
-          FloatingActionButton(
-            heroTag: 'add_member',
-            onPressed: () => _showAddMemberSheet(context),
-            backgroundColor: const Color(0xFF8B1A1A),
-            tooltip: 'Thêm thành viên thủ công',
-            child: const Icon(Icons.person_add_alt_1, color: Colors.white),
-          ),
-        ],
-      ),
+                // TAB 2: MEMBERS (Now Second)
+                _buildMembersTab(),
+              ],
+            ),
+       floatingActionButton: _tabController.index == 1 && !_isGraphView 
+           ? FloatingActionButton(
+                heroTag: 'add_member',
+                onPressed: () => _showAddMemberSheet(context),
+                backgroundColor: const Color(0xFF8B1A1A),
+                tooltip: 'Thêm thành viên',
+                child: const Icon(Icons.person_add_alt_1, color: Colors.white),
+              )
+           : null,
+    );
+  }
+
+  Widget _buildMembersTab() {
+    if (_members.isEmpty) return _buildEmptyState();
+    
+    if (_isGraphView) {
+      return GraphTreeView(
+         members: _members, 
+         onMemberTap: _showMemberDetails,
+         isClan: widget.clanType == 'clan',
+      );
+    }
+    
+    return ListView.builder(
+       padding: const EdgeInsets.all(16),
+       itemCount: _members.length,
+       itemBuilder: (context, index) => _buildMemberCard(_members[index]),
     );
   }
 
@@ -267,61 +262,17 @@ class _ClanTreePageState extends State<ClanTreePage> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Người khác quét mã này để yêu cầu tham gia vào gia phả này.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.grey)),
-            const SizedBox(height: 20),
             Container(
-              width: 232, 
-              height: 232,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white, 
-                borderRadius: BorderRadius.circular(12), 
-                border: Border.all(color: Colors.grey.shade300),
-                boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10)],
-              ),
-              child: RepaintBoundary(
-                key: _qrKey,
-                child: QrImageView(
-                  data: 'CLAN:${widget.clanId}',
-                  version: QrVersions.auto,
-                  size: 200.0,
-                  backgroundColor: Colors.white,
-                  eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: Colors.black),
-                  dataModuleStyle: const QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: Colors.black),
-                ),
-              ),
+              width: 200, height: 200,
+              child: QrImageView(data: 'CLAN:${widget.clanId}', version: QrVersions.auto),
             ),
-            const SizedBox(height: 20),
-            Text(widget.clanName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
-              child: Row(
-                 mainAxisAlignment: MainAxisAlignment.center,
-                 children: [
-                   Text('ID: ${widget.clanId}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.blueGrey)),
-                   const SizedBox(width: 8),
-                   InkWell(
-                     onTap: () {
-                        Clipboard.setData(ClipboardData(text: widget.clanId));
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã sao chép ID')));
-                     },
-                     child: const Icon(Icons.copy, size: 18, color: Colors.blue),
-                   )
-                 ],
-              ),
-            ),
+            const SizedBox(height: 16),
+            SelectableText(widget.clanId, style: const TextStyle(fontWeight: FontWeight.bold)),
           ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Đóng')),
-          ElevatedButton.icon(
-            onPressed: _saveQrCode, 
-            icon: const Icon(Icons.download), 
-            label: const Text('Lưu mã QR'),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
-          ),
+          ElevatedButton(onPressed: _saveQrCode, child: const Text('Lưu ảnh')),
         ],
       ),
     );
@@ -439,153 +390,74 @@ class _ClanTreePageState extends State<ClanTreePage> {
         children: [
           Icon(Icons.people_outline, size: 64, color: Colors.grey.shade400),
           const SizedBox(height: 16),
-          const Text('Chưa có thành viên nào trong gia phả này.', style: TextStyle(color: Colors.grey)),
+          const Text('Chưa có thành viên nào.', style: TextStyle(color: Colors.grey)),
         ],
       ),
     );
   }
 
-
-
   Widget _buildMemberCard(FamilyMember member) {
     final canEdit = _canEdit(member);
-    final canDelete = _isOwner;
     final hasLinkedAccount = member.profileId != null;
 
-    // 1. Calculate Relationship
+    // Calculate Relationship
     String? relationLabel;
     if (_currentUserId != null && _members.isNotEmpty) {
       try {
-        // Find 'Viewer' (Current User's Member Record)
-        final viewer = _members.firstWhere(
-           (m) => m.profileId == _currentUserId, 
-           orElse: () => FamilyMember(id: -1, fullName: '', isAlive: true)
-        );
-        
-        if (viewer.id != -1) {
-           // Utils: Calculate Title
-           relationLabel = RelationshipCalculator.getTitle(member, viewer, _members);
-        }
+        final viewer = _members.firstWhere((m) => m.profileId == _currentUserId);
+        relationLabel = RelationshipCalculator.getTitle(member, viewer, _members);
       } catch (_) {}
     }
 
     return Card(
-      key: ValueKey(member.id),
+      elevation: 2,
       margin: const EdgeInsets.only(bottom: 12),
-      color: member.isMaternal ? Colors.purple.shade50 : null,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: hasLinkedAccount 
-            ? const BorderSide(color: Colors.green, width: 1.5) 
-            : member.isMaternal 
-                ? BorderSide(color: Colors.purple.shade200, width: 1)
-                : BorderSide.none,
+        side: member.isMaternal ? const BorderSide(color: Colors.purple, width: 0.5) : BorderSide.none,
       ),
-      elevation: 2,
       child: ListTile(
-        leading: Stack(
+        leading: CircleAvatar(
+           backgroundColor: member.gender == 'male' ? Colors.blue.shade50 : Colors.pink.shade50,
+           child: Icon(member.gender == 'male' ? Icons.male : Icons.female, color: member.gender == 'male' ? Colors.blue : Colors.pink),
+        ),
+        title: Row(
           children: [
-            CircleAvatar(
-              backgroundColor: member.gender == 'male' ? Colors.blue.shade100 : Colors.pink.shade100,
-              child: Icon(
-                member.gender == 'male' ? Icons.male : Icons.female,
-                color: member.gender == 'male' ? Colors.blue.shade800 : Colors.pink.shade800,
-              ),
-            ),
-            if (hasLinkedAccount)
-              Positioned(
-                right: 0, bottom: 0,
-                child: Container(
-                  width: 12, height: 12,
-                  decoration: BoxDecoration(color: Colors.green, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2)),
-                ),
+            Expanded(child: Text(member.fullName, style: const TextStyle(fontWeight: FontWeight.bold))),
+            if (member.profileId != null)
+              IconButton(
+                icon: const Icon(Icons.chat_bubble_outline, size: 20, color: Colors.indigo),
+                onPressed: () {
+                   Navigator.push(context, MaterialPageRoute(
+                     builder: (_) => MemberChatPage(
+                       otherMemberId: member.profileId!, 
+                       otherMemberName: member.fullName
+                     )
+                   ));
+                },
+                tooltip: member.profileId == _currentUserId ? 'Ghi chú cá nhân' : 'Nhắn tin',
+              )
+            else
+              IconButton(
+                icon: Icon(Icons.chat_bubble_outline, size: 20, color: Colors.grey.shade300),
+                onPressed: () {
+                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Thành viên này chưa liên kết tài khoản.')));
+                },
+                tooltip: 'Chưa liên kết tài khoản',
               ),
           ],
         ),
-        title: Text(member.fullName, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // TITLE / LABEL (Ông Nội, Bà Nội...)
-            if (member.title != null && member.title!.isNotEmpty)
-              Container(
-                margin: const EdgeInsets.only(top: 4, bottom: 4),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.brown.shade50, 
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.brown.shade200),
-                ),
-                child: Text(
-                  member.title!,
-                  style: GoogleFonts.playfairDisplay(
-                    fontSize: 12, 
-                    fontWeight: FontWeight.bold, 
-                    color: Colors.brown.shade900
-                  ),
-                ),
-              ),
-
-            if (relationLabel != null)
-               Padding(
-                 padding: const EdgeInsets.symmetric(vertical: 2.0),
-                 child: Text(
-                   relationLabel, 
-                   style: const TextStyle(color: Color(0xFF8B1A1A), fontWeight: FontWeight.bold, fontSize: 13)
-                 ),
-               ),
-
-          if (member.gender == 'female')
-             // Find Spouse Name if possible
-             Builder(builder: (c) {
-               String? spouseName;
-               if (member.spouseId != null) {
-                  try { spouseName = _members.firstWhere((m) => m.id == member.spouseId).fullName; } catch(_) {}
-               } else {
-                  try { spouseName = _members.firstWhere((m) => m.spouseId == member.id).fullName; } catch(_) {}
-               }
-               
-               if (spouseName != null) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2.0),
-                    child: Text('Vợ của $spouseName', style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: Colors.blueGrey)),
-                  );
-               }
-               return const SizedBox.shrink();
-             }),
-          Text(
-            member.isAlive ? 'Còn sống' : 'Đã mất',
-            style: TextStyle(color: member.isAlive ? Colors.green : Colors.grey, fontSize: 12),
-          ),
-          ],
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (canEdit)
-               IconButton(
-                 icon: const Icon(Icons.edit, size: 20, color: Colors.blue),
-                 onPressed: () => _updateMember(member),
-               ),
-            if (canDelete)
-               IconButton(
-                 icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red),
-                 onPressed: () => _confirmDeleteMember(member),
-               ),
-            const Icon(Icons.chevron_right),
-          ],
-        ),
+        subtitle: Text(relationLabel ?? (member.title ?? 'Thành viên')),
+        trailing: hasLinkedAccount 
+            ? const Icon(Icons.verified, color: Colors.green, size: 16) 
+            : null,
         onTap: () => _showMemberDetails(member),
       ),
-    ).animate().fadeIn(delay: 100.ms).slideX();
+    ).animate().fadeIn();
   }
 
   bool _canEdit(FamilyMember member) {
     if (_isOwner) return true;
-    const allowedTitles = ['Trưởng họ', 'Phó họ', 'Chi trưởng', 'Chi phó'];
-    if (_currentUserTitle != null && allowedTitles.contains(_currentUserTitle)) {
-      return true;
-    }
     return false;
   }
 
@@ -679,71 +551,49 @@ class _ClanTreePageState extends State<ClanTreePage> {
   }
 
   void _showMemberDetails(FamilyMember member) {
-     String fatherName = 'Chưa rõ';
-     String motherName = 'Chưa rõ';
-     String spouseName = 'Chưa rõ';
-     
-     if (member.fatherId != null) {
-       try {
-         fatherName = _members.firstWhere((m) => m.id == member.fatherId).fullName;
-       } catch(_) {}
-     }
-     if (member.motherId != null) {
-       try {
-         motherName = _members.firstWhere((m) => m.id == member.motherId).fullName;
-       } catch(_) {}
-     }
-     
-     // Find Spouse
-     if (member.spouseId != null) {
-       try {
-         spouseName = _members.firstWhere((m) => m.id == member.spouseId).fullName;
-       } catch(_) {}
-     } else {
-       // Search for anyone who has this member as their spouse
-       try {
-         spouseName = _members.firstWhere((m) => m.spouseId == member.id).fullName;
-       } catch(_) {}
-     }
-
      showModalBottomSheet(
        context: context,
        builder: (context) => Container(
          padding: const EdgeInsets.all(24),
          decoration: const BoxDecoration(
-           color: Color(0xFFFFF8E1),
+           color: Colors.white,
            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
          ),
          child: Column(
            mainAxisSize: MainAxisSize.min,
-           crossAxisAlignment: CrossAxisAlignment.start,
            children: [
-             Text(member.fullName, style: GoogleFonts.playfairDisplay(fontSize: 24, fontWeight: FontWeight.bold, color: const Color(0xFF8B1A1A))),
-             const Divider(color: Color(0xFF8B1A1A), thickness: 1),
-             const SizedBox(height: 8),
-             _detailRow(Icons.cake, 'Ngày sinh', member.birthDate?.toString().split(' ')[0] ?? 'Chưa rõ'),
-             _detailRow(Icons.info_outline, 'Giới tính', member.gender == 'male' ? 'Nam' : 'Nữ'),
-             const SizedBox(height: 8),
-             const Text('Quan hệ gia đình:', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF8B1A1A))),
-             _detailRow(Icons.family_restroom, 'Cha', fatherName),
-             _detailRow(Icons.person_outline, 'Mẹ', motherName),
-             _detailRow(Icons.favorite, member.gender == 'male' ? 'Vợ' : 'Chồng', spouseName),
-             if (member.profileId != null) 
-               _detailRow(Icons.verified_user, 'Tài khoản', 'Đã liên kết'),
-             
-             if (member.bio != null && member.bio!.isNotEmpty) ...[
-               const SizedBox(height: 12),
-               const Text('Tiểu sử / Thông tin thêm:', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF8B1A1A))),
-               const SizedBox(height: 4),
-               Container(
-                 padding: const EdgeInsets.all(12),
-                 width: double.infinity,
-                 decoration: BoxDecoration(color: Colors.white70, borderRadius: BorderRadius.circular(8)),
-                 child: Text(member.bio!, style: const TextStyle(fontSize: 13, height: 1.4)),
-               )
-             ],
-
+             Text(member.fullName, style: GoogleFonts.playfairDisplay(fontSize: 24, fontWeight: FontWeight.bold)),
+             Text(member.title ?? (member.gender == 'male' ? 'Nam' : 'Nữ'), style: const TextStyle(color: Colors.grey)),
              const SizedBox(height: 24),
+             if (member.profileId != null)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                       Navigator.pop(context);
+                       Navigator.push(context, MaterialPageRoute(
+                         builder: (_) => MemberChatPage(
+                           otherMemberId: member.profileId!, 
+                           otherMemberName: member.fullName
+                         )
+                       ));
+                    },
+                    icon: const Icon(Icons.chat_bubble),
+                    label: Text(member.profileId == _currentUserId ? 'Ghi chú cá nhân' : 'Nhắn tin'),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+                  ),
+                )
+             else
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: null,
+                    icon: const Icon(Icons.chat_bubble_outline),
+                    label: const Text('Chưa liên kết tài khoản'),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.grey.shade200, foregroundColor: Colors.grey),
+                  ),
+                ),
+             // Add Edit/Delete buttons if needed here
            ],
          ),
        ),

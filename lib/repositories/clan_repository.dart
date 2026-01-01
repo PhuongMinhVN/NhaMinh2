@@ -15,13 +15,28 @@ class ClanRepository {
     return Clan.fromJson(response);
   }
 
-  /// Create a new Clan and adding the Root Member
+  /// NEW: Fetch all clans I own or administer
+  Future<List<Clan>> fetchMyClans() async {
+    final user = _client.auth.currentUser;
+    if (user == null) return [];
+    
+    // For now, let's just fetch clans where I am owner. 
+    // Later could expand to where I am an admin.
+    final response = await _client.from('clans').select().eq('owner_id', user.id);
+    return (response as List).map((j) => Clan.fromJson(j)).toList();
+  }
+
+  /// Create a new Clan (Family or Lineage) with Root Member
   Future<void> createClanWithRoot({
     required String clanName,
     required String description,
     required String rootName,
     required String? rootBio,
     required bool isMaleLineage,
+    required String clanType, // 'family' or 'clan'
+    required String rootTitle, // e.g., 'Viễn Tổ', 'Trưởng Nam'
+    required String ownerRelation, // 'blood' or 'in_law' (usually blood for creator)
+    bool rootIsAlive = true,
   }) async {
     final user = _client.auth.currentUser;
     if (user == null) throw 'User not logged in';
@@ -31,6 +46,8 @@ class ClanRepository {
       'name': clanName,
       'description': description,
       'owner_id': user.id,
+      'type': clanType,
+      'qr_code': '${clanType.toUpperCase()}-${DateTime.now().millisecondsSinceEpoch % 1000000}',
     }).select().single();
     
     final newClanId = clanRes['id'];
@@ -43,7 +60,79 @@ class ClanRepository {
       'clan_id': newClanId,
       'is_male_lineage': isMaleLineage,
       'generation_level': 1,
+      'generation_title': rootTitle,
+      'relation_type': ownerRelation,
+      'is_alive': rootIsAlive,
+      'profile_id': user.id, // Creator is linked to Root (as requested: "Người tạo là Thủy Tổ")
     });
+  }
+
+  /// MERGE Logic: Merge Family A (source) into Clan B (target)
+  /// - Deduplicate by VNCCID or Name+DOB
+  /// - Link Source Root as Child/Relative of Target Parent
+  Future<Map<String, dynamic>> mergeClan({
+    required String sourceClanId,
+    required String targetClanId,
+    required int targetParentId,
+    required String relationToParent, // 'child', 'spouse'
+  }) async {
+    // 1. Fetch Source Members
+    final sourceMembers = await _client.from('family_members').select().eq('clan_id', sourceClanId);
+    
+    // 2. Fetch Target Members (for deduplication)
+    final targetMembers = await _client.from('family_members').select('vnccid, full_name, birth_date').eq('clan_id', targetClanId);
+    
+    final targetVnccids = targetMembers.map((m) => m['vnccid']).where((e) => e != null).toSet();
+    final targetNames = targetMembers.map((m) => '${m['full_name']}_${m['birth_date']}').toSet();
+
+    int skippedCount = 0;
+    int mergedCount = 0;
+
+    // 3. Process Merge
+    // We need to map old IDs to new IDs to maintain relationships within the imported batch
+    final Map<int, int> idMap = {};
+
+    // Sort by generation so we insert parents before children
+    sourceMembers.sort((a, b) => (a['generation_level'] ?? 0).compareTo(b['generation_level'] ?? 0));
+
+    for (final m in sourceMembers) {
+      // Check Deduplication
+      if (m['vnccid'] != null && targetVnccids.contains(m['vnccid'])) {
+        skippedCount++;
+        continue;
+      }
+      final key = '${m['full_name']}_${m['birth_date']}';
+      if (targetNames.contains(key)) {
+        skippedCount++;
+        continue;
+      }
+
+      // Prepare new record
+      final oldId = m['id'];
+      final newRecord = Map<String, dynamic>.from(m);
+      newRecord.remove('id');
+      newRecord['clan_id'] = targetClanId;
+      
+      // Remap Parent/Spouse IDs
+      if (newRecord['father_id'] != null && idMap.containsKey(newRecord['father_id'])) {
+        newRecord['father_id'] = idMap[newRecord['father_id']];
+      } else if (newRecord['is_root'] == true) {
+        // If this was the root of Source, link to Target Parent
+        newRecord['father_id'] = targetParentId;
+        newRecord['is_root'] = false; // No longer root in new big clan
+      }
+
+      if (newRecord['spouse_id'] != null && idMap.containsKey(newRecord['spouse_id'])) {
+         newRecord['spouse_id'] = idMap[newRecord['spouse_id']];
+      }
+
+      // Insert
+      final res = await _client.from('family_members').insert(newRecord).select('id').single();
+      idMap[oldId] = res['id'];
+      mergedCount++;
+    }
+
+    return {'merged': mergedCount, 'skipped': skippedCount};
   }
 
   /// Get Clan by ID (for joining)
@@ -198,6 +287,17 @@ class ClanRepository {
 
   Future<void> rejectRequest(String requestId) async {
     await _client.from('clan_join_requests').update({'status': 'rejected'}).eq('id', requestId);
+  }
+
+  /// Update Clan Information
+  Future<void> updateClan({required String clanId, String? name, String? description}) async {
+    final updates = <String, dynamic>{};
+    if (name != null) updates['name'] = name;
+    if (description != null) updates['description'] = description;
+    
+    if (updates.isEmpty) return;
+
+    await _client.from('clans').update(updates).eq('id', clanId);
   }
 
   /// Check if user has permission to join a Clan (Must be Owner/Patriarch/Vice-Patriarch of their own genealogy)

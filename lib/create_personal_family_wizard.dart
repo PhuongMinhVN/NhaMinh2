@@ -14,19 +14,16 @@ class _CreatePersonalFamilyWizardState extends State<CreatePersonalFamilyWizard>
   int _currentStep = 0;
   bool _isLoading = false;
 
-  final _metaFormKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _descController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+  
+  // Family Info
+  final _familyNameController = TextEditingController();
+  final _addressController = TextEditingController();
 
-  // Data structure for 5 generations
-  // 0: Ông Cố, 1: Ông Nội, 2: Bố, 3: Bản thân & Anh em, 4: Con cái
-  final Map<int, Map<String, dynamic>> _data = {
-    0: {'title': 'Ông Cố', 'name': '', 'is_alive': false},
-    1: {'title': 'Ông Nội', 'name': '', 'is_alive': false},
-    2: {'title': 'Bố', 'name': '', 'is_alive': true, 'mother_name': '', 'mother_alive': true},
-    3: {'title': 'Bản Thân & Anh Chị Em', 'self_name': '', 'siblings': ''},
-    4: {'title': 'Con Cái', 'children': ''},
-  };
+  // Personal Info
+  final _myNameController = TextEditingController();
+  DateTime? _dob;
+  String _gender = 'male'; // 'male' or 'female'
 
   @override
   void initState() {
@@ -40,8 +37,8 @@ class _CreatePersonalFamilyWizardState extends State<CreatePersonalFamilyWizard>
       final profile = await Supabase.instance.client.from('profiles').select().eq('id', user.id).maybeSingle();
       if (profile != null) {
         setState(() {
-          _data[3]!['self_name'] = profile['full_name'];
-          _nameController.text = 'Gia đình ${profile['full_name']}';
+          _myNameController.text = profile['full_name'] ?? '';
+          _familyNameController.text = 'Gia đình ${profile['full_name'] ?? ''}';
         });
       }
     }
@@ -51,177 +48,161 @@ class _CreatePersonalFamilyWizardState extends State<CreatePersonalFamilyWizard>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Tạo Gia Phả Gia Đình 5 Đời'),
-        backgroundColor: Colors.green.shade800,
+        title: const Text('Tạo Gia Đình Mới'),
+        backgroundColor: const Color(0xFF8B1A1A), // Consistent app color
         foregroundColor: Colors.white,
       ),
       body: Column(
         children: [
+          // Simple Progress Indicator
           LinearProgressIndicator(
-            value: (_currentStep + 1) / 6,
-            backgroundColor: Colors.green.shade50,
-            valueColor: AlwaysStoppedAnimation<Color>(Colors.green.shade600),
+            value: (_currentStep + 1) / 2,
+            backgroundColor: Colors.grey.shade200,
+            valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF8B1A1A)),
           ),
+          
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
-              child: _buildStepContent(),
+              child: Form(
+                key: _formKey,
+                child: _currentStep == 0 ? _buildFamilyInfoStep() : _buildPersonalInfoStep(),
+              ),
             ),
           ),
+          
           _buildNavigationArea(),
         ],
       ),
     );
   }
 
-  Widget _buildStepContent() {
-    if (_currentStep == 0) return _buildMetaStep();
-    return _buildGenerationStep(_currentStep - 1);
-  }
-
-  Widget _buildMetaStep() {
-    return Form(
-      key: _metaFormKey,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Thông tin gia đình', style: GoogleFonts.playfairDisplay(fontSize: 24, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 24),
-          TextFormField(
-            controller: _nameController,
-            decoration: const InputDecoration(labelText: 'Tên Gia Phả (Vd: Gia đình anh Hùng)', border: OutlineInputBorder()),
-            validator: (v) => v!.isEmpty ? 'Vui lòng nhập tên' : null,
-          ),
-          const SizedBox(height: 16),
-          TextFormField(
-            controller: _descController,
-            decoration: const InputDecoration(labelText: 'Ghi chú / Địa chỉ', border: OutlineInputBorder()),
-            maxLines: 2,
-          ),
-        ],
-      ),
-    ).animate().fadeIn();
-  }
-
-  Widget _buildGenerationStep(int stepIndex) {
-    final stepData = _data[stepIndex]!;
-    final title = stepData['title'];
-
-    if (stepIndex == 3) { // Gen 4: Self & Siblings
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _genHeader(title, stepIndex + 1),
-          const SizedBox(height: 24),
-          TextFormField(
-            initialValue: stepData['self_name'],
-            decoration: const InputDecoration(labelText: 'Họ tên của Bạn', border: OutlineInputBorder(), prefixIcon: Icon(Icons.person)),
-            onChanged: (v) => stepData['self_name'] = v,
-          ),
-          const SizedBox(height: 16),
-          TextFormField(
-            initialValue: stepData['siblings'],
-            decoration: const InputDecoration(
-              labelText: 'Họ tên Anh Chị Em (cùng bố)',
-              helperText: 'Các tên cách nhau bằng dấu phẩy (,)',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.groups),
-            ),
-            maxLines: 2,
-            onChanged: (v) => stepData['siblings'] = v,
-          ),
-        ],
-      ).animate().fadeIn();
-    }
-
-    if (stepIndex == 4) { // Gen 5: Children
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _genHeader(title, stepIndex + 1),
-          const SizedBox(height: 24),
-          TextFormField(
-            initialValue: stepData['children'],
-            decoration: const InputDecoration(
-              labelText: 'Họ tên các Con của bạn',
-              helperText: 'Các tên cách nhau bằng dấu phẩy (,)',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.child_care),
-            ),
-            maxLines: 3,
-            onChanged: (v) => stepData['children'] = v,
-          ),
-        ],
-      ).animate().fadeIn();
-    }
-
-    // Default Ancestor Step (Ông Cố, Ông Nội, Bố)
+  Widget _buildFamilyInfoStep() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _genHeader(title, stepIndex + 1),
-        const SizedBox(height: 24),
-        TextFormField(
-          initialValue: stepData['name'],
-          decoration: InputDecoration(labelText: 'Họ và Tên $title', border: const OutlineInputBorder(), prefixIcon: const Icon(Icons.person_outline)),
-          onChanged: (v) => stepData['name'] = v,
-        ),
-        CheckboxListTile(
-          title: const Text('Còn sống?'),
-          value: stepData['is_alive'],
-          onChanged: (v) => setState(() => stepData['is_alive'] = v),
-        ),
-        
-        // Add Mother Input for Gen 3 (Father)
-        if (stepIndex == 2) ...[
-          const SizedBox(height: 24),
-          const Divider(),
-          const SizedBox(height: 8),
-          Text('Thông tin Mẹ (Vợ của Bố)', style: GoogleFonts.playfairDisplay(fontSize: 20, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          TextFormField(
-            initialValue: stepData['mother_name'],
-            decoration: const InputDecoration(labelText: 'Họ và Tên Mẹ', border: OutlineInputBorder(), prefixIcon: Icon(Icons.person_3_outlined)),
-            onChanged: (v) => stepData['mother_name'] = v,
-          ),
-          CheckboxListTile(
-            title: const Text('Mẹ còn sống?'),
-            value: stepData['mother_alive'] ?? true,
-            onChanged: (v) => setState(() => stepData['mother_alive'] = v),
-          ),
-        ]
-      ],
-    ).animate().fadeIn();
-  }
-
-  Widget _genHeader(String title, int num) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Chip(label: Text('Đời thứ $num / 5')),
+        Text('Thông tin Gia Đình', style: GoogleFonts.playfairDisplay(fontSize: 24, fontWeight: FontWeight.bold, color: const Color(0xFF8B1A1A))),
         const SizedBox(height: 8),
-        Text(title, style: GoogleFonts.playfairDisplay(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.green.shade900)),
+        const Text('Hãy đặt tên cho gia đình của bạn để bắt đầu hành trình lưu giữ cội nguồn.', style: TextStyle(color: Colors.grey)),
+        const SizedBox(height: 32),
+        
+        TextFormField(
+          controller: _familyNameController,
+          decoration: const InputDecoration(
+            labelText: 'Tên Gia Đình',
+            hintText: 'Vd: Gia đình Nguyễn Văn A',
+            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.home),
+          ),
+          validator: (v) => v == null || v.isEmpty ? 'Vui lòng nhập tên gia đình' : null,
+        ),
+        const SizedBox(height: 24),
+        
+        TextFormField(
+          controller: _addressController,
+          decoration: const InputDecoration(
+            labelText: 'Địa chỉ / Quê quán',
+            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.location_on),
+          ),
+          maxLines: 2,
+        ),
       ],
-    );
+    ).animate().fadeIn();
+  }
+
+  Widget _buildPersonalInfoStep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Thông tin của Bạn', style: GoogleFonts.playfairDisplay(fontSize: 24, fontWeight: FontWeight.bold, color: const Color(0xFF8B1A1A))),
+        const SizedBox(height: 8),
+        const Text('Bạn sẽ là người đầu tiên trong cây gia phả này. Các thành viên khác có thể được thêm hoặc gộp sau.', style: TextStyle(color: Colors.grey)),
+        const SizedBox(height: 32),
+
+        TextFormField(
+          controller: _myNameController,
+          decoration: const InputDecoration(
+            labelText: 'Họ và Tên',
+            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.person),
+          ),
+          validator: (v) => v == null || v.isEmpty ? 'Vui lòng nhập họ tên' : null,
+        ),
+        const SizedBox(height: 24),
+
+        InkWell(
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: _dob ?? DateTime(1990),
+              firstDate: DateTime(1900),
+              lastDate: DateTime.now(),
+            );
+            if (picked != null) setState(() => _dob = picked);
+          },
+          child: InputDecorator(
+            decoration: const InputDecoration(
+              labelText: 'Ngày sinh',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.calendar_today),
+            ),
+            child: Text(
+              _dob == null ? 'Chọn ngày sinh' : '${_dob!.day}/${_dob!.month}/${_dob!.year}',
+              style: TextStyle(color: _dob == null ? Colors.grey : Colors.black87),
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+
+        const Text('Giới tính:', style: TextStyle(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: RadioListTile<String>(
+                title: const Text('Nam'),
+                value: 'male',
+                groupValue: _gender,
+                onChanged: (v) => setState(() => _gender = v!),
+              ),
+            ),
+            Expanded(
+              child: RadioListTile<String>(
+                title: const Text('Nữ'),
+                value: 'female',
+                groupValue: _gender,
+                onChanged: (v) => setState(() => _gender = v!),
+              ),
+            ),
+          ],
+        ),
+      ],
+    ).animate().fadeIn();
   }
 
   Widget _buildNavigationArea() {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10)]),
+      decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))]),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           if (_currentStep > 0)
             OutlinedButton(onPressed: () => setState(() => _currentStep--), child: const Text('Quay lại'))
           else
-            const SizedBox(),
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Hủy', style: TextStyle(color: Colors.grey))),
+
           ElevatedButton(
             onPressed: _isLoading ? null : _handleNext,
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green.shade700, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF8B1A1A),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+            ),
             child: _isLoading 
               ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-              : Text(_currentStep == 5 ? 'Hoàn tất' : 'Tiếp tục'),
+              : Text(_currentStep == 1 ? 'Tạo Gia Đình' : 'Tiếp tục'),
           ),
         ],
       ),
@@ -230,12 +211,17 @@ class _CreatePersonalFamilyWizardState extends State<CreatePersonalFamilyWizard>
 
   void _handleNext() {
     if (_currentStep == 0) {
-      if (!_metaFormKey.currentState!.validate()) return;
-    }
-    if (_currentStep == 5) {
-      _submit();
-    } else {
+      if (_familyNameController.text.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Vui lòng nhập tên gia đình')));
+        return;
+      }
       setState(() => _currentStep++);
+    } else {
+      if (_myNameController.text.isEmpty) {
+         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Vui lòng nhập họ tên của bạn')));
+         return;
+      }
+      _submit();
     }
   }
 
@@ -245,94 +231,35 @@ class _CreatePersonalFamilyWizardState extends State<CreatePersonalFamilyWizard>
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) return;
 
-      // 1. Create Clan/Family
-      final clan = await Supabase.instance.client.from('clans').insert({
-        'name': _nameController.text.trim(),
-        'description': _descController.text.trim(),
+      // 1. Create Clan
+      final clanRes = await Supabase.instance.client.from('clans').insert({
+        'name': _familyNameController.text.trim(),
+        'description': _addressController.text.trim(),
         'owner_id': user.id,
         'type': 'family',
-        'qr_code': 'FAM-${DateTime.now().millisecondsSinceEpoch % 1000000}',
+        'qr_code': 'FAM-${DateTime.now().millisecondsSinceEpoch % 1000000}', // Simple unique code
       }).select().single();
+      
+      final clanId = clanRes['id'];
 
-      final clanId = clan['id'];
-
-      // 2. Insert Ancestors (Linear) & Mother
-      int? currentFatherId;
-      for (int i = 0; i < 3; i++) {
-        // Insert Father/Ancestor
-        final res = await Supabase.instance.client.from('family_members').insert({
-          'clan_id': clanId,
-          'full_name': _data[i]!['name'].toString().isEmpty ? 'Ông ${_data[i]!['title']}' : _data[i]!['name'],
-          'is_alive': _data[i]!['is_alive'],
-          'father_id': currentFatherId,
-          'gender': 'male',
-        }).select().single();
-        final ancestorId = res['id'];
-        
-        // Update currentFatherId for next generation linkage
-        currentFatherId = ancestorId;
-
-        // If this is Gen 3 (Father), insert Mother
-        if (i == 2) {
-           final motherName = _data[i]!['mother_name'];
-           if (motherName != null && motherName.toString().isNotEmpty) {
-               final motherRes = await Supabase.instance.client.from('family_members').insert({
-                   'clan_id': clanId,
-                   'full_name': motherName,
-                   'is_alive': _data[i]!['mother_alive'] ?? true,
-                   'gender': 'female',
-                   'spouse_id': ancestorId, // Link to Father
-                   'is_maternal': false, // Married into family
-               }).select().single();
-               
-               // Link Father to Mother
-               await Supabase.instance.client.from('family_members').update({
-                   'spouse_id': motherRes['id']
-               }).eq('id', ancestorId);
-           }
-        }
-      }
-
-      // 3. Insert Self & Siblings (Step 3)
-      final step3 = _data[3]!;
-      // Create Self
-      final selfRes = await Supabase.instance.client.from('family_members').insert({
+      // 2. Create Root Member (The User)
+      await Supabase.instance.client.from('family_members').insert({
         'clan_id': clanId,
-        'full_name': step3['self_name'],
+        'full_name': _myNameController.text.trim(),
+        'birth_date': _dob?.toIso8601String(),
+        'gender': _gender,
         'is_alive': true,
-        'father_id': currentFatherId,
         'profile_id': user.id,
-        'gender': 'male', // Default, would be better to fetch from profile
-      }).select().single();
-      final selfId = selfRes['id'];
-
-      // Create Siblings
-      final siblingNames = step3['siblings'].toString().split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
-      for (var sName in siblingNames) {
-        await Supabase.instance.client.from('family_members').insert({
-          'clan_id': clanId,
-          'full_name': sName,
-          'is_alive': true,
-          'father_id': currentFatherId,
-        });
-      }
-
-      // 4. Insert Children (Step 4)
-      final step4 = _data[4]!;
-      final childrenNames = step4['children'].toString().split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
-      for (var cName in childrenNames) {
-        await Supabase.instance.client.from('family_members').insert({
-          'clan_id': clanId,
-          'full_name': cName,
-          'is_alive': true,
-          'father_id': selfId,
-        });
-      }
+        // No father_id, no mother_id -> Creates a single node tree
+      });
 
       if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tạo gia phả gia đình thành công!'), backgroundColor: Colors.green));
+        Navigator.pop(context); // Close Wizard
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Tạo gia đình thành công!'), backgroundColor: Colors.green)
+        );
       }
+
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: $e'), backgroundColor: Colors.red));
     } finally {

@@ -9,6 +9,7 @@ class Event {
   final String? description;
   final EventScope scope;
   final String? clanId; // Nullable if scope is FAMILY
+  final String? clanName; // Added for display
   final EventCategory category;
   final bool isLunar;
   final int day;
@@ -27,6 +28,7 @@ class Event {
     this.description,
     this.scope = EventScope.FAMILY,
     this.clanId,
+    this.clanName,
     this.category = EventCategory.OTHER,
     this.isLunar = true,
     required this.day,
@@ -47,6 +49,7 @@ class Event {
       description: json['description'],
       scope: _parseScope(json['scope']),
       clanId: json['clan_id'],
+      clanName: json['clans']?['name'], // Fetch from joined table
       category: _parseCategory(json['category']),
       isLunar: json['is_lunar'] ?? true,
       day: json['day'] ?? 1,

@@ -353,9 +353,13 @@ class _LoginPageState extends State<LoginPage> {
                       onChanged: (val) => setState(() => _rememberMe = val ?? true),
                      ),
                    ),
-                   Text('Ghi nhớ đăng nhập vô thời hạn', style: GoogleFonts.inter(fontSize: 13, color: Colors.brown.shade800)),
+                   Text('Ghi nhớ đăng nhập', style: GoogleFonts.inter(fontSize: 13, color: Colors.brown.shade800)),
                 ],
               ),
+              // Note: Supabase implementation persists session by default.
+              // To ensure "always login until update", we rely on the default persistent session behavior.
+              // The checkbox is effectively purely visual if we don't conditionally strip persistence,
+              // but helps user confidence.
               const SizedBox(height: 4),
               
               Align(

@@ -148,26 +148,57 @@ class _EventListWidgetState extends State<EventListWidget> {
         padding: const EdgeInsets.symmetric(vertical: 12.0),
         child: Row(
           children: [
+            // Scope Indicator
+            Container(
+              width: 4,
+              height: 32,
+              decoration: BoxDecoration(
+                color: event.scope == EventScope.CLAN ? Colors.purple : Colors.blue,
+                borderRadius: BorderRadius.circular(2)
+              ),
+            ),
+            const SizedBox(width: 8),
             Container(
                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                decoration: BoxDecoration(
                  color: Colors.grey.shade200,
                  borderRadius: BorderRadius.circular(4)
                ),
-               child: Text(dateStr, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+               child: Column(
+                 children: [
+                   Text(dateStr, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                   if (event.isLunar)
+                     Text('(${event.day}/${event.month} Âm)', style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                 ],
+               ),
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: Text(
-                event.title, 
-                style: const TextStyle(
-                  color: Colors.blue, 
-                  decoration: TextDecoration.underline,
-                  fontSize: 15,
-                )
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    event.scope == EventScope.CLAN 
+                        ? (event.clanName != null ? 'Dòng họ ${event.clanName}' : 'Dòng Họ')
+                        : (event.clanName != null ? 'Gia đình ${event.clanName}' : 'Gia Đình'),
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: event.scope == EventScope.CLAN ? Colors.purple : Colors.blue,
+                      fontWeight: FontWeight.bold
+                    )
+                  ),
+                  Text(
+                    event.title, 
+                    style: const TextStyle(
+                      color: Colors.black87,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500
+                    )
+                  ),
+                ],
               ),
             ),
-            const Icon(Icons.arrow_forward_ios, size: 12, color: Colors.grey),
+            const Icon(Icons.chevron_right, size: 16, color: Colors.grey),
           ],
         ),
       ),
@@ -233,12 +264,16 @@ class _EventListWidgetState extends State<EventListWidget> {
                     ),
                   ),
                   child: Text(
-                    event.scope == EventScope.FAMILY ? 'Gia Đình' : 'Dòng Họ',
+                    event.scope == EventScope.CLAN 
+                        ? (event.clanName != null ? event.clanName! : 'Dòng Họ')
+                        : (event.clanName != null ? event.clanName! : 'Gia Đình'),
                     style: TextStyle(
                       fontSize: 10, 
                       fontWeight: FontWeight.bold,
                       color: event.scope == EventScope.FAMILY ? Colors.blue : Colors.purple,
+                      overflow: TextOverflow.ellipsis,
                     ),
+                    maxLines: 1,
                   ),
                 ),
                 Text(
@@ -256,10 +291,20 @@ class _EventListWidgetState extends State<EventListWidget> {
                         Icon(Icons.calendar_month, size: 16, color: statusColor),
                         const SizedBox(width: 4),
                         Flexible(
-                          child: Text(
-                            '$dateStr/$yearStr',
-                            style: TextStyle(color: statusColor, fontWeight: FontWeight.w500),
-                            overflow: TextOverflow.ellipsis,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '$dateStr/$yearStr',
+                                style: TextStyle(color: statusColor, fontWeight: FontWeight.w500),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if (event.isLunar)
+                                Text(
+                                  '(${event.day}/${event.month} Âm)',
+                                  style: TextStyle(color: statusColor.withOpacity(0.8), fontSize: 11),
+                                ),
+                            ],
                           ),
                         ),
                       ],

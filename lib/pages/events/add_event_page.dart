@@ -5,7 +5,9 @@ import '../../models/event_model.dart';
 import '../../services/event_service.dart';
 
 class AddEventPage extends StatefulWidget {
-  const AddEventPage({super.key});
+  final Event? event; // Optional event for editing
+  
+  const AddEventPage({super.key, this.event});
 
   @override
   State<AddEventPage> createState() => _AddEventPageState();
@@ -17,7 +19,7 @@ class _AddEventPageState extends State<AddEventPage> {
   final _descController = TextEditingController();
   
   // Default values
-  EventScope _scope = EventScope.FAMILY;
+  EventScope _scope = EventScope.CLAN; // Default per request
   EventCategory _category = EventCategory.OTHER;
   bool _isLunar = true;
   bool _isRecurring = true;
@@ -40,6 +42,22 @@ class _AddEventPageState extends State<AddEventPage> {
   void initState() {
     super.initState();
     _fetchEntities();
+    
+    if (widget.event != null) {
+      // Populate fields for editing
+      _titleController.text = widget.event!.title;
+      _descController.text = widget.event!.description ?? '';
+      _scope = widget.event!.scope;
+      _category = widget.event!.category;
+      _isLunar = widget.event!.isLunar;
+      _isRecurring = widget.event!.recurrenceType == RecurrenceType.YEARLY;
+      _requiresAttendance = widget.event!.requiresAttendance;
+      _isImportant = widget.event!.isImportant;
+      _day = widget.event!.day;
+      _month = widget.event!.month;
+      _year = widget.event!.year ?? DateTime.now().year;
+      _selectedEntityId = widget.event!.clanId;
+    }
   }
 
   Future<void> _fetchEntities() async {
@@ -140,8 +158,10 @@ class _AddEventPageState extends State<AddEventPage> {
       }
       // --------------------------------------------
 
+      final eventId = widget.event?.id ?? ''; // Use existing ID if editing
+       
       final newEvent = Event(
-        id: '', // Supabase generated
+        id: eventId,
         title: _titleController.text.trim(),
         description: _descController.text.trim().isEmpty ? null : _descController.text.trim(),
         scope: _scope,
@@ -158,11 +178,15 @@ class _AddEventPageState extends State<AddEventPage> {
         createdAt: DateTime.now(),
       );
 
-      await _eventService.createEvent(newEvent);
+      if (widget.event == null) {
+        await _eventService.createEvent(newEvent);
+      } else {
+        await _eventService.updateEvent(newEvent);
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Tạo sự kiện thành công!')),
+           SnackBar(content: Text(widget.event == null ? 'Tạo sự kiện thành công!' : 'Cập nhật thành công!')),
         );
         Navigator.pop(context, true); // Return true to refresh
       }
@@ -180,7 +204,7 @@ class _AddEventPageState extends State<AddEventPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Thêm Sự Kiện Mới')),
+      appBar: AppBar(title: Text(widget.event == null ? 'Thêm Sự Kiện Mới' : 'Cập Nhật Sự Kiện')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Form(
@@ -220,7 +244,7 @@ class _AddEventPageState extends State<AddEventPage> {
                     child: DropdownButtonFormField<EventScope>(
                        value: _scope,
                        decoration: const InputDecoration(labelText: 'Phạm vi'),
-                       items: EventScope.values.map((s) => DropdownMenuItem(
+                       items: [EventScope.CLAN, EventScope.FAMILY].map((s) => DropdownMenuItem( // Order: Clan first
                          value: s,
                          child: Text(s == EventScope.FAMILY ? 'Gia Đình' : 'Dòng Họ'),
                        )).toList(),
@@ -308,12 +332,14 @@ class _AddEventPageState extends State<AddEventPage> {
                 value: _isLunar,
                 onChanged: (v) => setState(() => _isLunar = v),
               ),
-              SwitchListTile(
-                title: const Text('Lặp lại hàng năm'),
-                subtitle: const Text('Tự động tạo sự kiện cho các năm sau'),
-                value: _isRecurring,
-                onChanged: (v) => setState(() => _isRecurring = v),
-              ),
+               CheckboxListTile(
+                 title: const Text('Lặp lại hàng năm'),
+                 subtitle: const Text('Tự động tạo sự kiện cho các năm sau'),
+                 value: _isRecurring,
+                 onChanged: (v) => setState(() => _isRecurring = v ?? false),
+                 controlAffinity: ListTileControlAffinity.leading, // Checkbox on the left
+                 activeColor: Theme.of(context).primaryColor,
+               ),
               SwitchListTile(
                 title: const Text('Yêu cầu điểm danh'),
                 subtitle: const Text('Thành viên cần xác nhận tham gia'),
@@ -342,10 +368,10 @@ class _AddEventPageState extends State<AddEventPage> {
                 ),
                 child: _isLoading 
                     ? const CircularProgressIndicator(color: Colors.white) 
-                    : const Text(
-                        'TẠO SỰ KIỆN',
-                        style: TextStyle(
-                          fontSize: 20, 
+                    : Text(
+                        widget.event == null ? 'TẠO SỰ KIỆN' : 'CẬP NHẬT',
+                        style: const TextStyle(
+                          fontSize: 20,  
                           fontWeight: FontWeight.bold,
                           letterSpacing: 1.2,
                         ),

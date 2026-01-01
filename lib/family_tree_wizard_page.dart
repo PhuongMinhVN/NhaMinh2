@@ -38,6 +38,7 @@ class _FamilyTreeWizardPageState extends State<FamilyTreeWizardPage> {
         rootName: rootName,
         rootBio: _bioCtrl.text,
         isMaleLineage: true, // Default
+        clanType: _mode,
       );
       widget.onCreated();
     } catch (e) {
