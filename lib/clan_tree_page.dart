@@ -1,5 +1,6 @@
 
 import 'package:flutter/material.dart';
+import 'dashboard_page.dart'; // Added import
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:gal/gal.dart'; // Mobile Image Saver
 import 'package:google_fonts/google_fonts.dart';
@@ -51,6 +52,7 @@ class _ClanTreePageState extends State<ClanTreePage> with SingleTickerProviderSt
   String? _currentUserTitle;
   bool _isOwner = false;
   String? _currentUserId;
+  String? _currentUserAvatar; // Add this
 
   bool _isGraphView = false; // State for View Mode
 
@@ -71,15 +73,34 @@ class _ClanTreePageState extends State<ClanTreePage> with SingleTickerProviderSt
     try {
       final res = await Supabase.instance.client
           .from('family_members')
-          .select()
+          .select('*, profiles(avatar_url)')
           .eq('clan_id', widget.clanId)
           .order('birth_date', ascending: true);
+
+      // Fetch current user details including avatar
+      // Fetch current user details including avatar
+      _currentUserId = Supabase.instance.client.auth.currentUser?.id;
+      
+      Map<String, dynamic>? userProfile;
+      if (_currentUserId != null && _currentUserId!.isNotEmpty) {
+        userProfile = await Supabase.instance.client
+            .from('profiles')
+            .select('avatar_url')
+            .eq('id', _currentUserId!)
+            .maybeSingle();
+      }
+
+      String? myAvatarUrl;
+      if (userProfile != null) {
+          myAvatarUrl = userProfile['avatar_url'];
+      }
 
       setState(() {
         _members = (res as List).map((json) => FamilyMember.fromJson(json)).toList();
         
         _currentUserId = Supabase.instance.client.auth.currentUser?.id;
         _isOwner = _currentUserId == widget.ownerId;
+        _currentUserAvatar = myAvatarUrl; // New state variable
         
         final myMemberRecord = _members.firstWhere(
             (m) => m.profileId == _currentUserId, 
@@ -168,6 +189,22 @@ class _ClanTreePageState extends State<ClanTreePage> with SingleTickerProviderSt
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.home),
+            tooltip: 'Về Trang Chủ',
+            onPressed: () {
+               Navigator.pushAndRemoveUntil(
+                 context, 
+                 MaterialPageRoute(builder: (_) => DashboardPage()), 
+                 (route) => false
+               );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.qr_code_scanner),
+            tooltip: 'Quét mã để thêm thành viên',
+            onPressed: _handleQrScan,
+          ),
+          IconButton(
             icon: Icon(_isGraphView ? Icons.list : Icons.account_tree),
             tooltip: _isGraphView ? 'Xem danh sách' : 'Xem sơ đồ',
             onPressed: () => setState(() => _isGraphView = !_isGraphView),
@@ -209,10 +246,10 @@ class _ClanTreePageState extends State<ClanTreePage> with SingleTickerProviderSt
        floatingActionButton: _tabController.index == 1 && !_isGraphView 
            ? FloatingActionButton(
                 heroTag: 'add_member',
-                onPressed: () => _showAddMemberSheet(context),
+                onPressed: _handleQrScan, // Changed to QR Scan
                 backgroundColor: const Color(0xFF8B1A1A),
-                tooltip: 'Thêm thành viên',
-                child: const Icon(Icons.person_add_alt_1, color: Colors.white),
+                tooltip: 'Quét mã thêm thành viên',
+                child: const Icon(Icons.qr_code_scanner, color: Colors.white), // Changed Icon
               )
            : null,
     );
@@ -351,33 +388,126 @@ class _ClanTreePageState extends State<ClanTreePage> with SingleTickerProviderSt
        }
 
        if (!mounted) return;
-       final confirm = await showDialog<bool>(
-         context: context,
-         builder: (ctx) => AlertDialog(
-           title: const Text('Mời thành viên'),
-           content: Text('Bạn có muốn thêm "${profile['full_name']}" vào gia phả không?'),
-           actions: [
-             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Hủy')),
-             ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Đồng ý')),
+
+       // Dialog to Select Relationship
+       FamilyMember? selectedRelative;
+     String relationType = 'child'; // child, spouse, independent
+     String childType = 'biological'; // Default
+
+     await showDialog(
+       context: context,
+       barrierDismissible: false,
+       builder: (ctx) => StatefulBuilder(
+         builder: (context, setStateDialog) => AlertDialog(
+         title: const Text('Thêm thành viên'),
+         content: Column(
+           mainAxisSize: MainAxisSize.min,
+           crossAxisAlignment: CrossAxisAlignment.start,
+           children: [
+             Text('Tìm thấy: ${profile['full_name']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+             const SizedBox(height: 16),
+             const Text('Chọn mối quan hệ:'),
+             DropdownButton<String>(
+               isExpanded: true,
+               value: relationType,
+               items: const [
+                 DropdownMenuItem(value: 'child', child: Text('Là Con của...')),
+                 DropdownMenuItem(value: 'spouse', child: Text('Là Vợ/Chồng của...')),
+                 DropdownMenuItem(value: 'independent', child: Text('Thành viên độc lập (Gốc)')),
+               ],
+               onChanged: (v) => setStateDialog(() {
+                  relationType = v!;
+                  selectedRelative = null;
+               }),
+             ),
+             
+             // Child Type Selection
+             if (relationType == 'child') ...[
+                const SizedBox(height: 8),
+                const Text('Loại quan hệ:'),
+                DropdownButton<String>(
+                  isExpanded: true,
+                  value: childType,
+                  items: const [
+                    DropdownMenuItem(value: 'biological', child: Text('Con Ruột')),
+                    DropdownMenuItem(value: 'adopted', child: Text('Con Nuôi')),
+                    DropdownMenuItem(value: 'step', child: Text('Con Riêng (Vợ/Chồng)')),
+                    DropdownMenuItem(value: 'grandchild', child: Text('Là Cháu (Cháu nội/ngoại)')),
+                  ],
+                  onChanged: (v) => setStateDialog(() => childType = v!),
+                ),
+             ],
+
+             if (relationType != 'independent') ...[
+               const SizedBox(height: 8),
+               Text(relationType == 'child' ? 'Chọn Bố/Mẹ:' : 'Chọn Vợ/Chồng:'),
+               DropdownButton<FamilyMember>(
+                 isExpanded: true,
+                 hint: const Text('Chọn người thân'),
+                 value: selectedRelative,
+                 items: _members.map((m) => DropdownMenuItem(
+                   value: m,
+                   child: Text('${m.fullName} (${m.gender == 'male' ? 'Nam' : 'Nữ'})'),
+                 )).toList(),
+                 onChanged: (v) => setStateDialog(() => selectedRelative = v),
+               ),
+             ]
            ],
          ),
-       );
+         actions: [
+           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Hủy')),
+           ElevatedButton(
+             onPressed: () {
+               if (relationType != 'independent' && selectedRelative == null) {
+                  return; // Must select relative
+               }
+               Navigator.pop(ctx, true);
+             },
+             child: const Text('Thêm'),
+           ),
+         ],
+       ),
+       ),
+     ).then((confirm) async {
+        if (confirm == true) {
+            final Map<String, dynamic> insertData = {
+              'clan_id': widget.clanId,
+              'full_name': profile['full_name'],
+              'profile_id': profile['id'],
+              'is_alive': true,
+              'gender': profile['gender'] ?? 'male', 
+              'child_type': relationType == 'child' ? childType : null, // Add child_type
+            };
 
-       if (confirm == true) {
-          await Supabase.instance.client.from('family_members').insert({
-            'clan_id': widget.clanId,
-            'full_name': profile['full_name'],
-            'profile_id': profile['id'],
-            'is_alive': true,
-            'gender': 'male', 
-          });
-          
-          _fetchMembers();
-          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã thêm thành viên thành công!'), backgroundColor: Colors.green));
-       }
+            if (relationType == 'child' && selectedRelative != null) {
+               if (selectedRelative!.gender == 'male') {
+                  insertData['father_id'] = selectedRelative!.id;
+               } else {
+                  insertData['mother_id'] = selectedRelative!.id;
+               }
+               // Try to guess generation
+               if (selectedRelative!.generationLevel != null) {
+                  insertData['generation_level'] = selectedRelative!.generationLevel! + 1;
+               }
+            } else if (relationType == 'spouse' && selectedRelative != null) {
+               insertData['spouse_id'] = selectedRelative!.id;
+               if (selectedRelative!.generationLevel != null) {
+                  insertData['generation_level'] = selectedRelative!.generationLevel;
+               }
+            } else {
+               insertData['is_root'] = true;
+               insertData['generation_level'] = 1;
+            }
+
+            await Supabase.instance.client.from('family_members').insert(insertData);
+            
+            _fetchMembers();
+            if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã thêm thành viên thành công!'), backgroundColor: Colors.green));
+        }
+     });
 
      } catch (e) {
-       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi mời: $e')));
+       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi thêm: $e')));
      } finally {
        if (mounted) setState(() => _isLoading = false);
      }
@@ -388,9 +518,18 @@ class _ClanTreePageState extends State<ClanTreePage> with SingleTickerProviderSt
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.people_outline, size: 64, color: Colors.grey.shade400),
+          if (_isOwner && _currentUserAvatar != null && _currentUserAvatar!.isNotEmpty)
+            CircleAvatar(
+              radius: 40,
+              backgroundImage: NetworkImage(_currentUserAvatar!),
+            )
+          else
+            Icon(Icons.people_outline, size: 64, color: Colors.grey.shade400),
           const SizedBox(height: 16),
-          const Text('Chưa có thành viên nào.', style: TextStyle(color: Colors.grey)),
+          if (_isOwner)
+             Text('Chưa có thành viên nào.\nHãy thêm thành viên đầu tiên!', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade600))
+          else
+             const Text('Chưa có thành viên nào.', style: TextStyle(color: Colors.grey)),
         ],
       ),
     );
@@ -418,8 +557,14 @@ class _ClanTreePageState extends State<ClanTreePage> with SingleTickerProviderSt
       ),
       child: ListTile(
         leading: CircleAvatar(
+           radius: 24, // Slightly larger
            backgroundColor: member.gender == 'male' ? Colors.blue.shade50 : Colors.pink.shade50,
-           child: Icon(member.gender == 'male' ? Icons.male : Icons.female, color: member.gender == 'male' ? Colors.blue : Colors.pink),
+           backgroundImage: (member.avatarUrl != null && member.avatarUrl!.isNotEmpty) 
+               ? NetworkImage(member.avatarUrl!) 
+               : null,
+           child: (member.avatarUrl == null || member.avatarUrl!.isEmpty) 
+               ? Icon(member.gender == 'male' ? Icons.male : Icons.female, color: member.gender == 'male' ? Colors.blue : Colors.pink)
+               : null,
         ),
         title: Row(
           children: [
@@ -445,9 +590,36 @@ class _ClanTreePageState extends State<ClanTreePage> with SingleTickerProviderSt
                 },
                 tooltip: 'Chưa liên kết tài khoản',
               ),
+             
+             // CONTEXTUAL ADD BUTTON
+             // Allow Owner or Admin to add relatives
+             if (_canEdit(member))
+               IconButton(
+                 icon: const Icon(Icons.person_add_alt, size: 20, color: Colors.brown),
+                 onPressed: () => _showAddRelativeDialog(member),
+                 tooltip: 'Thêm người thân',
+               ),
           ],
         ),
-        subtitle: Text(relationLabel ?? (member.title ?? 'Thành viên')),
+        subtitle: Row(
+          children: [
+            if (member.clanRole == 'owner')
+               Container(
+                 margin: const EdgeInsets.only(right: 8),
+                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                 decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(4)),
+                 child: const Text('Chủ Nhà', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+               ),
+            if (member.clanRole == 'admin')
+               Container(
+                 margin: const EdgeInsets.only(right: 8),
+                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                 decoration: BoxDecoration(color: Colors.orange, borderRadius: BorderRadius.circular(4)),
+                 child: const Text('Phó Nhà', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+               ),
+            Text(relationLabel ?? (member.title ?? 'Thành viên')),
+          ],
+        ),
         trailing: hasLinkedAccount 
             ? const Icon(Icons.verified, color: Colors.green, size: 16) 
             : null,
@@ -457,7 +629,17 @@ class _ClanTreePageState extends State<ClanTreePage> with SingleTickerProviderSt
   }
 
   bool _canEdit(FamilyMember member) {
-    if (_isOwner) return true;
+    if (_isOwner) return true; // Owner can edit all
+    
+    // Check if current user is Admin
+    try {
+       final me = _members.firstWhere((m) => m.profileId == _currentUserId);
+       if (me.clanRole == 'admin') {
+          // Admin can delete/edit normal members, but not other Admins or Owner
+          if (member.clanRole == 'member') return true;
+       }
+    } catch (_) {}
+    
     return false;
   }
 
@@ -484,25 +666,210 @@ class _ClanTreePageState extends State<ClanTreePage> with SingleTickerProviderSt
       final confirm = await showDialog<bool>(
          context: context,
          builder: (c) => AlertDialog(
-           title: const Text('Xoá thành viên?'),
-           content: Text('Bạn có chắc chắn muốn xoá "${member.fullName}"?'),
-           actions: [
-             TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Huỷ')),
-             ElevatedButton(
-               onPressed: () => Navigator.pop(c, true), 
-               style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
-               child: const Text('Xoá'),
-             ),
-           ],
+          title: const Text('Xoá thành viên?'),
+          content: Text('Bạn có chắc xoá ${member.fullName} không?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Huỷ')),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(c, true), 
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+              child: const Text('Xoá')
+            ),
+          ],
          ),
       );
 
       if (confirm == true) {
          await Supabase.instance.client.from('family_members').delete().eq('id', member.id);
          _fetchMembers();
+         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã xoá thành viên.')));
       }
   }
 
+  void _showEnterIdDialog() {
+      final idCtrl = TextEditingController();
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Nhập ID thành viên'),
+          content: TextField(
+            controller: idCtrl,
+            decoration: const InputDecoration(
+              labelText: 'ID / Mã hồ sơ (UUID)',
+              hintText: 'Nhập mã ID...',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Huỷ')),
+            ElevatedButton(
+              onPressed: () {
+                 if (idCtrl.text.trim().isEmpty) return;
+                 Navigator.pop(ctx);
+                 _processInvite(idCtrl.text.trim());
+              },
+              child: const Text('Tìm kiếm'),
+            ),
+          ],
+        ),
+      );
+  }
+
+  void _showAddRelativeDialog(FamilyMember baseMember) {
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        builder: (ctx) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+             padding: const EdgeInsets.all(24),
+             child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                   Text('Thêm người thân cho ${baseMember.fullName}', style: GoogleFonts.playfairDisplay(fontSize: 18, fontWeight: FontWeight.bold)),
+                   const SizedBox(height: 16),
+                   ListTile(
+                   leading: const Icon(Icons.qr_code_scanner, color: Colors.black87),
+                   title: const Text('Quét mã QR'),
+                   subtitle: const Text('Quét mã từ hồ sơ người dùng'),
+                   onTap: () {
+                      Navigator.pop(ctx);
+                      _handleQrScan();
+                   },
+                 ),
+                 ListTile(
+                   leading: const Icon(Icons.edit_note, color: Colors.indigo),
+                   title: const Text('Nhập ID thành viên'),
+                   subtitle: const Text('Nhập mã ID thủ công'),
+                   onTap: () {
+                      Navigator.pop(ctx);
+                      _showEnterIdDialog();
+                   },
+                 ),
+                ],
+             ),
+          ),
+        ),
+      );
+  }
+
+  // Simplified Manual Add for Contextual Action
+  void _showManualAddSheet({required FamilyMember baseMember, required String relation}) {
+      final nameCtrl = TextEditingController();
+      String gender = 'male';
+      String childType = 'biological'; // Default
+      bool isAlive = true;
+      
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        builder: (ctx) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            child: StatefulBuilder(
+              builder: (context, setSheetState) => Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(relation == 'child' ? 'Thêm Con của ${baseMember.fullName}' : 'Thêm Vợ/Chồng của ${baseMember.fullName}', 
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  const SizedBox(height: 16),
+                  
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(labelText: 'Họ và Tên', border: OutlineInputBorder()),
+                    textCapitalization: TextCapitalization.words,
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // Relationship Type (Only for Child)
+                  if (relation == 'child') ...[
+                    const Text('Loại quan hệ:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    DropdownButtonFormField<String>(
+                      value: 'biological',
+                      items: const [
+                        DropdownMenuItem(value: 'biological', child: Text('Con Ruột')),
+                        DropdownMenuItem(value: 'adopted', child: Text('Con Nuôi')),
+                        DropdownMenuItem(value: 'step', child: Text('Con Riêng (Vợ/Chồng)')),
+                        DropdownMenuItem(value: 'grandchild', child: Text('Là Cháu (Cháu nội/ngoại)')),
+                      ],
+                      onChanged: (v) {
+                         if (v != null) setSheetState(() => childType = v);
+                      },
+                      decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 5)),
+                      onSaved: (v) {}, 
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  Row(
+                    children: [
+                      const Text('Giới tính: '),
+                      Radio<String>(value: 'male', groupValue: gender, onChanged: (v) => setSheetState(() => gender = v!)),
+                      const Text('Nam'),
+                      Radio<String>(value: 'female', groupValue: gender, onChanged: (v) => setSheetState(() => gender = v!)),
+                      const Text('Nữ'),
+                    ],
+                  ),
+                  CheckboxListTile(
+                    title: const Text('Còn sống?'),
+                    value: isAlive, 
+                    onChanged: (v) => setSheetState(() => isAlive = v!),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+
+                  const SizedBox(height: 24),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                         if (nameCtrl.text.isEmpty) return;
+                         
+                         final Map<String, dynamic> data = {
+                           'clan_id': widget.clanId,
+                           'full_name': nameCtrl.text.trim(),
+                           'gender': gender,
+                           'is_alive': isAlive,
+                           'generation_level': (baseMember.generationLevel ?? 1) + (relation == 'child' ? 1 : 0),
+                           // Add new fields
+                           'child_type': relation == 'child' ? childType : null,
+                           // 'role_label': roleLabelCtrl.text.isNotEmpty ? roleLabelCtrl.text.trim() : null,
+                         };
+                         
+                         if (relation == 'child') {
+                            if (baseMember.gender == 'male') {
+                               data['father_id'] = baseMember.id;
+                            } else {
+                               data['mother_id'] = baseMember.id;
+                            }
+                         } else {
+                            data['spouse_id'] = baseMember.id;
+                         }
+
+                         try {
+                            await Supabase.instance.client.from('family_members').insert(data);
+                            Navigator.pop(ctx);
+                            _fetchMembers();
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã thêm thành viên!'), backgroundColor: Colors.green));
+                         } catch (e) {
+                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: $e')));
+                         }
+                      },
+                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF8B1A1A), foregroundColor: Colors.white),
+                      child: const Text('Lưu thành viên'),
+                    ),
+                  )
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+  }
   void _showMergeDialog() {
     if (_currentUserId == null) return;
     showDialog(
@@ -593,12 +960,95 @@ class _ClanTreePageState extends State<ClanTreePage> with SingleTickerProviderSt
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.grey.shade200, foregroundColor: Colors.grey),
                   ),
                 ),
-             // Add Edit/Delete buttons if needed here
+             
+             const SizedBox(height: 16),
+             
+             // OWNER ACTIONS: Manage Roles
+             if (_isOwner && member.profileId != _currentUserId && member.clanRole != 'owner')
+               ListTile(
+                 leading: const Icon(Icons.security, color: Colors.orange),
+                 title: const Text('Phân quyền (Phó Nhà)'),
+                 onTap: () {
+                    Navigator.pop(context);
+                    _showRoleDialog(member);
+                 },
+               ),
+
+             if (_canEdit(member)) ...[
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.edit, color: Colors.blue),
+                  title: const Text('Chỉnh sửa thông tin'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _updateMember(member);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.delete, color: Colors.red),
+                  title: const Text('Xoá thành viên'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _confirmDeleteMember(member);
+                  },
+                ),
+             ],
            ],
          ),
        ),
      );
   }
+
+  void _showRoleDialog(FamilyMember member) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('Phân quyền cho ${member.fullName}'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+               ListTile(
+                 title: const Text('Thành viên'),
+                 leading: Radio<String>(
+                   value: 'member', 
+                   groupValue: member.clanRole, 
+                   onChanged: (v) => _updateRole(member, v!, ctx)
+                 ),
+               ),
+               ListTile(
+                 title: const Text('Phó Nhà (Admin)'),
+                 subtitle: const Text('Có quyền thêm/sửa/xoá thành viên'),
+                 leading: Radio<String>(
+                   value: 'admin', 
+                   groupValue: member.clanRole, 
+                   activeColor: Colors.orange,
+                   onChanged: (v) => _updateRole(member, v!, ctx)
+                 ),
+               ),
+            ],
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Đóng'))],
+        ),
+      );
+  }
+
+  void _updateRole(FamilyMember member, String newRole, BuildContext dialogContext) async {
+     try {
+        await Supabase.instance.client
+            .from('family_members')
+            .update({'clan_role': newRole})
+            .eq('id', member.id);
+            
+        Navigator.pop(dialogContext); // Close dialog
+        _fetchMembers(); // Refresh
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Đã cập nhật vai trò: ${newRole == 'admin' ? 'Phó Nhà' : 'Thành viên'}')));
+     } catch (e) {
+        Navigator.pop(dialogContext);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: $e')));
+     }
+  }
+
+
 
   Widget _detailRow(IconData icon, String label, String value) {
     return Padding(

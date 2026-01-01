@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'login_page.dart';
 import 'dashboard_page.dart';
+import 'dart:ui'; // For PointerDeviceKind
 
 // --- CẤU HÌNH KẾT NỐI (Từ thông tin bạn cung cấp) ---
 const String DEFAULT_PROJECT_URL = 'https://dpfyflwxvbvnckctwhyd.supabase.co';
@@ -31,6 +32,14 @@ class GiaPhaApp extends StatelessWidget {
     return MaterialApp(
       title: 'Việc Họ & Giỗ Chạp',
       debugShowCheckedModeBanner: false,
+      scrollBehavior: const MaterialScrollBehavior().copyWith(
+        dragDevices: {
+          PointerDeviceKind.mouse,
+          PointerDeviceKind.touch,
+          PointerDeviceKind.stylus,
+          PointerDeviceKind.unknown,
+        },
+      ),
       theme: ThemeData(
         brightness: Brightness.light,
         primaryColor: const Color(0xFF8B1A1A), // Deep Red (Đỏ trầm)

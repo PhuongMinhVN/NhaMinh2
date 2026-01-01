@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import '../repositories/clan_repository.dart';
+import '../dashboard_page.dart';
 
 class NotificationsPage extends StatefulWidget {
   final String clanId;
@@ -45,6 +46,19 @@ class _NotificationsPageState extends State<NotificationsPage> with SingleTicker
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 1,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.home),
+            tooltip: 'Về Trang Chủ',
+            onPressed: () {
+               Navigator.pushAndRemoveUntil(
+                 context, 
+                 MaterialPageRoute(builder: (_) => DashboardPage()), 
+                 (route) => false
+               );
+            },
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           labelColor: Colors.red.shade900,

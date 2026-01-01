@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'register_page.dart';
 import 'dashboard_page.dart';
 import 'recovery_page.dart';
@@ -17,8 +18,43 @@ class _LoginPageState extends State<LoginPage> {
   final _identifierController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isObscure = true;
+  bool _isIdentifierObscure = false; // Default visible
   bool _isLoading = false;
-  bool _rememberMe = true; // Default to true
+  bool _rememberMe = true; 
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedCredentials();
+    
+    // Auto-hide identifier after 5 digits for security
+    _identifierController.addListener(() {
+      if (_identifierController.text.length >= 5 && !_isIdentifierObscure) {
+         // Only auto-hide if it hasn't been toggled manually (simplification: just strictly hide first time?)
+         // Let's use a flag to prevent fighting if user wants to see.
+         // Actually, simpler: just default behavior. If user types 5th char, we switch to hidden.
+         // But we need to avoid loop. 
+         // Logic: If length == 5 and visible -> hide.
+         if (_identifierController.text.length == 5) {
+            setState(() => _isIdentifierObscure = true);
+         }
+      }
+    });
+  }
+
+  Future<void> _loadSavedCredentials() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedId = prefs.getString('saved_identifier');
+    final savedPass = prefs.getString('saved_password');
+    
+    if (savedId != null && savedPass != null) {
+      setState(() {
+        _identifierController.text = savedId;
+        _passwordController.text = savedPass;
+        _rememberMe = true;
+      });
+    }
+  }
 
   Future<void> _signIn() async {
     final input = _identifierController.text.trim();
@@ -34,6 +70,16 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _isLoading = true);
 
     try {
+      // 1. Save/Clear Credentials based on "Remember Me"
+      final prefs = await SharedPreferences.getInstance();
+      if (_rememberMe) {
+        await prefs.setString('saved_identifier', input);
+        await prefs.setString('saved_password', password);
+      } else {
+        await prefs.remove('saved_identifier');
+        await prefs.remove('saved_password');
+      }
+
       String cleanPhone = input.replaceAll(RegExp(r'\D'), '');
       
       // Trường hợp nhập CCCD (12 số) -> Tìm SĐT
@@ -320,12 +366,16 @@ class _LoginPageState extends State<LoginPage> {
               const SizedBox(height: 48),
 
               // Phone/CCCD Input
+              // Phone/CCCD Input
               _buildTextField(
                 controller: _identifierController,
                 label: 'Số điện thoại hoặc CCCD',
                 icon: Icons.person_outline_rounded,
                 hint: '0912... hoặc số CCCD',
                 keyboardType: TextInputType.number,
+                isPassword: true, // Enable Eye Icon
+                isObscure: _isIdentifierObscure,
+                onToggleObscure: () => setState(() => _isIdentifierObscure = !_isIdentifierObscure),
               ).animate().fadeIn(delay: 300.ms).slideX(),
 
               const SizedBox(height: 16),

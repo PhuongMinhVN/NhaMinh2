@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 // Refreshed file content
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dashboard_page.dart';
 import '../repositories/clan_repository.dart'; // Added Import
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -161,6 +162,17 @@ class _ClanListPageState extends State<ClanListPage> {
         backgroundColor: const Color(0xFF8B1A1A),
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.home),
+            tooltip: 'Về Trang Chủ',
+            onPressed: () {
+               Navigator.pushAndRemoveUntil(
+                 context, 
+                 MaterialPageRoute(builder: (_) => DashboardPage()), 
+                 (route) => false
+               );
+            },
+          ),
           if (widget.isClan) ...[
             IconButton(
               icon: const Icon(Icons.qr_code_scanner),

@@ -24,6 +24,7 @@ import 'pages/join_request_page.dart';
 import 'repositories/clan_repository.dart';
 import 'widgets/dashboard_action_button.dart';
 import 'pages/chat/chat_list_page.dart';
+import 'package:image_picker/image_picker.dart'; // Add image_picker
 import 'clan_list_page.dart';
 import 'models/clan.dart';
 import 'login_page.dart';
@@ -290,222 +291,312 @@ class _DashboardPageState extends State<DashboardPage> {
       final addressCtrl = TextEditingController(text: data['current_address']);
       final passwordCtrl = TextEditingController(); // Để đổi mật khẩu
       
+      // Local state for avatar
+      String? currentAvatarUrl = data['avatar_url'];
+
       if (!mounted) return;
 
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) => AlertDialog(
-          title: const Text('Hồ Sơ Cá Nhân'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                 _buildDialogTextField(nameCtrl, 'Họ và Tên', Icons.person),
-                 const SizedBox(height: 12),
-                 _buildDialogTextField(phoneCtrl, 'Số điện thoại', Icons.phone, type: TextInputType.phone),
-                 const SizedBox(height: 12),
-                 _buildDialogTextField(vnccidCtrl, 'Số CCCD', Icons.badge, type: TextInputType.number),
-                 const SizedBox(height: 12),
-                 _buildDialogTextField(addressCtrl, 'Nơi ở hiện tại', Icons.location_on),
-                 const SizedBox(height: 12),
-                 _buildDialogTextField(passwordCtrl, 'Mật khẩu mới (Nếu muốn đổi)', Icons.lock_outline, isObscure: true),
-                 const SizedBox(height: 24),
-                 
-                 // BUTTONS
-                 SizedBox(
-                   width: double.infinity,
-                   child: OutlinedButton.icon(
-                     onPressed: () {
-                        // Show QR Dialog
-                        showDialog(
-                          context: context,
-                          builder: (_) => AlertDialog(
-                            content: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Text('Mã QR Cá Nhân', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                                const SizedBox(height: 16),
-                                Container(
-                                  width: 200, height: 200,
-                                  color: Colors.white,
-                                  child: Center(
-                                    child: QrImageView(
-                                      data: user.id, // User ID as QR Data
-                                      version: QrVersions.auto,
-                                      size: 200.0,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(user.id, style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                              ],
-                            ),
-                          ),
-                        );
-                     },
-                     icon: const Icon(Icons.qr_code),
-                     label: const Text('Mã QR Của Tôi'),
-                     style: OutlinedButton.styleFrom(
-                       padding: const EdgeInsets.symmetric(vertical: 12),
-                       foregroundColor: Colors.blue.shade800, 
-                       side: BorderSide(color: Colors.blue.shade800),
-                     ),
-                   ),
-                 ),
-                 const SizedBox(height: 12),
-                 
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(context); // Đóng dialog hồ sơ
-                      _showSecuritySettingsDialog(); // Mở dialog bảo mật
-                    },
-                    icon: const Icon(Icons.security),
-                    label: const Text('Thiết lập Câu hỏi Bảo mật'),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      foregroundColor: const Color(0xFFD32F2F), 
-                      side: const BorderSide(color: Color(0xFFD32F2F)),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(context); // Đóng dialog hồ sơ
-                      _showInheritanceDialog(); 
-                    },
-                    icon: const Icon(Icons.family_restroom),
-                    label: const Text('Di chúc số / Người thừa kế'),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      foregroundColor: Colors.purple,
-                      side: const BorderSide(color: Colors.purple),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(context); // Đóng dialog hồ sơ
-                      _showClaimInheritanceDialog();
-                    },
-                    icon: const Icon(Icons.verified_user),
-                    label: const Text('Tiếp nhận Thừa kế'),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      foregroundColor: Colors.brown,
-                  ),
-                ),
-                ),
-                const SizedBox(height: 12),
-                
-                // LOGOUT BUTTON
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(context); // Close dialog
-                      _signOut(); // Perform sign out
-                    },
-                    icon: const Icon(Icons.logout),
-                    label: const Text('Đăng Xuất'),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      backgroundColor: Colors.grey.shade400,
-                      foregroundColor: Colors.black87,
-                      elevation: 0,
-                    ),
-                  ),
-                ),
+        builder: (context) => StatefulBuilder(
+          builder: (context, setStateDialog) {
+            
+            // Function to handle avatar upload
+            Future<void> handleAvatarUpload() async {
+                final picker = ImagePicker();
+                final image = await picker.pickImage(source: ImageSource.gallery, maxWidth: 600);
+                if (image == null) return;
 
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Hủy'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                final newPhone = phoneCtrl.text.trim();
-                final newPassword = passwordCtrl.text.trim();
-                bool isPasswordChanged = newPassword.isNotEmpty;
+                // Show simple loading indicator within dialog or snackbar?
+                // For simplicity, we just block UI or show snackbar
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đang tải ảnh...')));
 
                 try {
-                  // 1. CẬP NHẬT MẬT KHẨU (Nếu có nhập)
-                  if (isPasswordChanged) {
-                       if (newPassword.length < 6) {
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Mật khẩu mới phải từ 6 ký tự')));
-                          return;
-                       }
-                       await Supabase.instance.client.auth.updateUser(
-                         UserAttributes(password: newPassword)
-                       );
-                  }
-
-                  // CHECK DUPLICATE VNCCID (CUSTOM LOGIC)
-                  final newVnccid = vnccidCtrl.text.trim();
-                  if (newVnccid != data['vnccid']) {
-                     final duplicate = await Supabase.instance.client
-                         .from('profiles')
-                         .select('id')
-                         .eq('vnccid', newVnccid)
-                         .maybeSingle();
-                     
-                     if (duplicate != null) {
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('VNCCID này đã có người sử dụng. Vui lòng kiểm tra lại.')));
-                        return;
-                     }
-                  }
-
-                  // 2. CẬP NHẬT HỒ SƠ 
-                  await Supabase.instance.client.from('profiles').update({
-                    'full_name': nameCtrl.text.trim(),
-                    'phone': newPhone,
-                    'vnccid': vnccidCtrl.text.trim(),
-                    'current_address': addressCtrl.text.trim(),
-                  }).eq('id', user.id);
+                  final bytes = await image.readAsBytes();
+                  final fileExt = image.path.split('.').last;
+                  final fileName = '${user.id}/${DateTime.now().millisecondsSinceEpoch}.$fileExt';
                   
-                  if (mounted) {
-                    Navigator.pop(context);
-                    
-                    String msg = 'Hồ sơ đã được lưu. Hệ thống tự động đồng bộ tài khoản.';
-                    if (isPasswordChanged) msg += ' Mật khẩu đã được thay đổi.';
-                    
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      content: Text(msg),
-                      backgroundColor: Colors.green,
-                      duration: const Duration(seconds: 3),
-                    ));
-                    
-                    setState(() {}); // Refresh UI
-                  }
-                } catch (e) {
-                   String err = e.toString();
-                   if (err.contains('weak_password')) {
-                     err = 'Mật khẩu quá yếu.';
-                   }
-                   if (err.contains('violates unique constraint') || err.contains('already exists')) {
-                     err = 'SĐT này có thể đã được sử dụng.';
-                   }
+                  // Upload
+                  await Supabase.instance.client.storage.from('avatars').uploadBinary(
+                    fileName,
+                    bytes,
+                    fileOptions: const FileOptions(upsert: true),
+                  );
+
+                  // Get URL
+                  final imageUrl = Supabase.instance.client.storage.from('avatars').getPublicUrl(fileName);
+
+                  // Update Profile DB immediately
+                  await Supabase.instance.client.from('profiles').update({
+                    'avatar_url': imageUrl
+                  }).eq('id', user.id);
+
+                  // Update UI
+                  setStateDialog(() {
+                    currentAvatarUrl = imageUrl;
+                  });
                    
-                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                     content: Text('Lỗi: $err'),
-                     backgroundColor: Colors.red,
-                   ));
+                  if (mounted) {
+                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã cập nhật ảnh đại diện!')));
+                  }
+
+                } catch (e) {
+                   debugPrint('Upload error: $e');
+                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi upload: $e')));
                 }
-              },
-              child: const Text('Lưu thay đổi'),
-            ),
-          ],
+            }
+
+
+            return AlertDialog(
+              title: const Text('Hồ Sơ Cá Nhân'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                     // AVATAR WIDGET
+                     Center(
+                       child: Stack(
+                         children: [
+                           CircleAvatar(
+                             radius: 50,
+                             backgroundImage: (currentAvatarUrl != null && currentAvatarUrl!.isNotEmpty)
+                                 ? NetworkImage(currentAvatarUrl!)
+                                 : null,
+                             child: (currentAvatarUrl == null || currentAvatarUrl!.isEmpty)
+                                 ? const Icon(Icons.person, size: 50)
+                                 : null,
+                           ),
+                           Positioned(
+                             bottom: 0,
+                             right: 0,
+                             child: InkWell(
+                               onTap: handleAvatarUpload,
+                               child: Container(
+                                 padding: const EdgeInsets.all(6),
+                                 decoration: BoxDecoration(
+                                   color: Theme.of(context).primaryColor,
+                                   shape: BoxShape.circle,
+                                   border: Border.all(color: Colors.white, width: 2),
+                                 ),
+                                 child: const Icon(Icons.camera_alt, color: Colors.white, size: 16),
+                               ),
+                             ),
+                           ),
+                         ],
+                       ),
+                     ),
+                     const SizedBox(height: 24),
+
+                     _buildDialogTextField(nameCtrl, 'Họ và Tên', Icons.person),
+                     const SizedBox(height: 12),
+                     _buildDialogTextField(phoneCtrl, 'Số điện thoại', Icons.phone, type: TextInputType.phone),
+                     const SizedBox(height: 12),
+                     _buildDialogTextField(vnccidCtrl, 'Số CCCD', Icons.badge, type: TextInputType.number),
+                     const SizedBox(height: 12),
+                     _buildDialogTextField(addressCtrl, 'Nơi ở hiện tại', Icons.location_on),
+                     const SizedBox(height: 12),
+                     _buildDialogTextField(passwordCtrl, 'Mật khẩu mới (Nếu muốn đổi)', Icons.lock_outline, isObscure: true),
+                     const SizedBox(height: 24),
+                     
+                     // BUTTONS
+                     SizedBox(
+                       width: double.infinity,
+                       child: OutlinedButton.icon(
+                         onPressed: () {
+                            // Show QR Dialog
+                            showDialog(
+                              context: context,
+                              builder: (_) => AlertDialog(
+                                content: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Text('Mã QR Cá Nhân', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                                    const SizedBox(height: 16),
+                                    Container(
+                                      width: 200, height: 200,
+                                      color: Colors.white,
+                                      child: Center(
+                                        child: QrImageView(
+                                          data: user.id, // User ID as QR Data
+                                          version: QrVersions.auto,
+                                          size: 200.0,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(user.id, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                                  ],
+                                ),
+                              ),
+                            );
+                         },
+                         icon: const Icon(Icons.qr_code),
+                         label: const Text('Mã QR Của Tôi'),
+                         style: OutlinedButton.styleFrom(
+                           padding: const EdgeInsets.symmetric(vertical: 12),
+                           foregroundColor: Colors.blue.shade800, 
+                           side: BorderSide(color: Colors.blue.shade800),
+                         ),
+                       ),
+                     ),
+                     const SizedBox(height: 12),
+                     
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context); // Đóng dialog hồ sơ
+                          _showSecuritySettingsDialog(); // Mở dialog bảo mật
+                        },
+                        icon: const Icon(Icons.security),
+                        label: const Text('Thiết lập Câu hỏi Bảo mật'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          foregroundColor: const Color(0xFFD32F2F), 
+                          side: const BorderSide(color: Color(0xFFD32F2F)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context); // Đóng dialog hồ sơ
+                          _showInheritanceDialog(); 
+                        },
+                        icon: const Icon(Icons.family_restroom),
+                        label: const Text('Di chúc số / Người thừa kế'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          foregroundColor: Colors.purple,
+                          side: const BorderSide(color: Colors.purple),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context); // Đóng dialog hồ sơ
+                          _showClaimInheritanceDialog();
+                        },
+                        icon: const Icon(Icons.verified_user),
+                        label: const Text('Tiếp nhận Thừa kế'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          foregroundColor: Colors.brown,
+                      ),
+                    ),
+                    ),
+                    const SizedBox(height: 12),
+                    
+                    // LOGOUT BUTTON
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context); // Close dialog
+                          _signOut(); // Perform sign out
+                        },
+                        icon: const Icon(Icons.logout),
+                        label: const Text('Đăng Xuất'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          backgroundColor: Colors.grey.shade400,
+                          foregroundColor: Colors.black87,
+                          elevation: 0,
+                        ),
+                      ),
+                    ),
+
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Hủy'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    final newPhone = phoneCtrl.text.trim();
+                    final newPassword = passwordCtrl.text.trim();
+                    bool isPasswordChanged = newPassword.isNotEmpty;
+
+                    try {
+                      // 1. CẬP NHẬT MẬT KHẨU (Nếu có nhập)
+                      if (isPasswordChanged) {
+                           if (newPassword.length < 6) {
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Mật khẩu mới phải từ 6 ký tự')));
+                              return;
+                           }
+                           await Supabase.instance.client.auth.updateUser(
+                             UserAttributes(password: newPassword)
+                           );
+                      }
+
+                      // CHECK DUPLICATE VNCCID (CUSTOM LOGIC)
+                      final newVnccid = vnccidCtrl.text.trim();
+                      if (newVnccid != data['vnccid']) {
+                         final duplicate = await Supabase.instance.client
+                             .from('profiles')
+                             .select('id')
+                             .eq('vnccid', newVnccid)
+                             .maybeSingle();
+                         
+                         if (duplicate != null) {
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('VNCCID này đã có người sử dụng. Vui lòng kiểm tra lại.')));
+                            return;
+                         }
+                      }
+
+                      // 2. CẬP NHẬT HỒ SƠ 
+                      await Supabase.instance.client.from('profiles').update({
+                        'full_name': nameCtrl.text.trim(),
+                        'phone': newPhone,
+                        'vnccid': vnccidCtrl.text.trim(),
+                        'current_address': addressCtrl.text.trim(),
+                        // 'avatar_url' is already updated if changed, but we could update again to be safe? 
+                        // No need if already updated.
+                      }).eq('id', user.id);
+                      
+                      if (mounted) {
+                        Navigator.pop(context);
+                        
+                        String msg = 'Hồ sơ đã được lưu. Hệ thống tự động đồng bộ tài khoản.';
+                        if (isPasswordChanged) msg += ' Mật khẩu đã được thay đổi.';
+                        
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(msg),
+                          backgroundColor: Colors.green,
+                          duration: const Duration(seconds: 3),
+                        ));
+                        
+                        setState(() {}); // Refresh UI
+                      }
+                    } catch (e) {
+                       String err = e.toString();
+                       if (err.contains('weak_password')) {
+                         err = 'Mật khẩu quá yếu.';
+                       }
+                       if (err.contains('violates unique constraint') || err.contains('already exists')) {
+                         err = 'SĐT này có thể đã được sử dụng.';
+                       }
+                       
+                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                         content: Text('Lỗi: $err'),
+                         backgroundColor: Colors.red,
+                       ));
+                    }
+                  },
+                  child: const Text('Lưu thay đổi'),
+                ),
+              ],
+            );
+          }
         ),
       );
     } catch (e) {

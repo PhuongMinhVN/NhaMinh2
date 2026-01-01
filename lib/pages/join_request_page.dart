@@ -24,6 +24,7 @@ class _JoinRequestPageState extends State<JoinRequestPage> {
   // Create Form Data
   final _formKey = GlobalKey<FormState>();
   final _nameCtrl = TextEditingController();
+  final _titleCtrl = TextEditingController(); // New Title Controller
   String _gender = 'male';
   DateTime? _birthDate;
   
@@ -119,6 +120,7 @@ class _JoinRequestPageState extends State<JoinRequestPage> {
               setState(() {
                 _showCreateForm = true;
                 _nameCtrl.text = _searchCtrl.text; // Pre-fill name
+                _titleCtrl.text = '';
               });
             },
             icon: const Icon(Icons.person_add),
@@ -147,8 +149,17 @@ class _JoinRequestPageState extends State<JoinRequestPage> {
           
           TextFormField(
             controller: _nameCtrl,
-            decoration: const InputDecoration(labelText: 'Họ và tên', border: OutlineInputBorder()),
+            decoration: const InputDecoration(labelText: 'Họ và tên (Bạn có thể sửa)', border: OutlineInputBorder()),
             validator: (v) => v!.isEmpty ? 'Vui lòng nhập tên' : null,
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _titleCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Chức danh (Ví dụ: Trưởng Nam, Con Dâu...)', 
+              border: OutlineInputBorder(),
+              hintText: 'Để trống nếu không có chức danh đặc biệt'
+            ),
           ),
           const SizedBox(height: 12),
           
@@ -345,20 +356,38 @@ class _JoinRequestPageState extends State<JoinRequestPage> {
   void _confirmClaim(Map<String, dynamic> member) {
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Xác nhận'),
-        content: Text('Bạn có chắc chắn hồ sơ "${member['full_name']}" chính là bạn không?'),
+      builder: (_) {
+         final localNameCtrl = TextEditingController(text: member['full_name']);
+         final localTitleCtrl = TextEditingController();
+         return AlertDialog(
+        title: const Text('Xác nhận & Chỉnh sửa'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Hồ sơ "${member['full_name']}" là của bạn?'),
+            const SizedBox(height: 16),
+            const Text('Bạn có muốn cập nhật lại Tên hoặc Chức danh không?', style: TextStyle(fontSize: 12, color: Colors.grey)),
+            const SizedBox(height: 8),
+            TextField(controller: localNameCtrl, decoration: const InputDecoration(labelText: 'Họ và tên', border: OutlineInputBorder())),
+            const SizedBox(height: 8),
+            TextField(controller: localTitleCtrl, decoration: const InputDecoration(labelText: 'Chức danh (để trống nếu không đổi)', border: OutlineInputBorder())),
+          ],
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Không')),
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(context); // close dialog
+               // Update global controllers to use in _sendClaimRequest effectively or pass params
+               _nameCtrl.text = localNameCtrl.text; // Hacky reuse of main controller
+               _titleCtrl.text = localTitleCtrl.text;
               await _sendClaimRequest(member);
             },
-            child: const Text('Đúng là tôi'),
+            child: const Text('Gửi Yêu Cầu'),
           )
         ],
-      ),
+      );
+      }
     );
   }
 
@@ -367,7 +396,11 @@ class _JoinRequestPageState extends State<JoinRequestPage> {
       await _repo.sendDetailedJoinRequest(
         targetClanId: widget.clan.id,
         type: 'claim_existing',
-        metadata: {'member_id': member['id']}
+        metadata: {
+          'member_id': member['id'],
+          'full_name': _nameCtrl.text.isNotEmpty ? _nameCtrl.text.trim() : member['full_name'], // Send customized name if needed
+          'title': _titleCtrl.text.isNotEmpty ? _titleCtrl.text.trim() : null, // Send title
+        }
       );
       if (mounted) _showSuccess();
     } catch (e) {
@@ -389,6 +422,7 @@ class _JoinRequestPageState extends State<JoinRequestPage> {
      try {
        Map<String, dynamic> meta = {
            'full_name': _nameCtrl.text.trim(),
+           'title': _titleCtrl.text.trim().isEmpty ? null : _titleCtrl.text.trim(),
            'gender': _gender,
            'birth_date': _birthDate?.toIso8601String(),
            'relation': _relationType, 
