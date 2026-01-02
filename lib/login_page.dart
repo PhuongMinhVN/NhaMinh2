@@ -6,6 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'register_page.dart';
 import 'dashboard_page.dart';
 import 'recovery_page.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter/foundation.dart';
+import 'main.dart'; // To access GOOGLE_WEB_CLIENT_ID
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -150,21 +153,75 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _googleSignIn() async {
+    setState(() => _isLoading = true);
     try {
-      // For Web, this triggers a redirect.
-      // Make sure Site URL and Redirect URLs are configured in Supabase Dashboard.
-      await Supabase.instance.client.auth.signInWithOAuth(
-        OAuthProvider.google,
-        redirectTo: 'http://localhost:5000/callback', // Or your deployed URL
+      // 1. Web Login Flow
+      if (kIsWeb) {
+        await Supabase.instance.client.auth.signInWithOAuth(
+          OAuthProvider.google,
+          redirectTo: kIsWeb ? null : 'io.supabase.giapha://login-callback/',
+        );
+        // Web triggers redirect, so execution might stop here or page reloads.
+        return;
+      }
+
+      // 2. Native (Android/iOS) Login Flow
+      // Requires: 
+      // - 'google_sign_in' package
+      // - 'GOOGLE_WEB_CLIENT_ID' configured in main.dart
+      // - SHA-1 Fingerprint added to Firebase/Google Cloud Console
+      
+      final GoogleSignIn googleSignIn = GoogleSignIn(
+        serverClientId: GOOGLE_WEB_CLIENT_ID, 
       );
-      // On Web, the page will redirect, so no navigation code needed here usually.
-      // However, if it's a popup flow or native, we might need to handle state.
+
+      final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+      
+      if (googleUser == null) {
+        // User canceled the sign-in flow
+        return; // Just return, don't show error
+      }
+
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      final accessToken = googleAuth.accessToken;
+      final idToken = googleAuth.idToken;
+
+      if (idToken == null) {
+        throw 'Không tìm thấy ID Token từ Google. Vui lòng kiểm tra cấu hình Web Client ID.';
+      }
+
+      // 3. Sign in to Supabase with the ID Token
+      final response = await Supabase.instance.client.auth.signInWithIdToken(
+        provider: OAuthProvider.google,
+        idToken: idToken,
+        accessToken: accessToken,
+      );
+
+      if (response.user != null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Đăng nhập Google thành công!')),
+          );
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const DashboardPage()),
+          );
+        }
+      }
+      
     } catch (e) {
       if (mounted) {
+        // Human readable error
+        String errorMsg = 'Lỗi đăng nhập Google: $e';
+        if (e.toString().contains('GoogleSignIn.signIn')) {
+          errorMsg = 'Lỗi khởi động đăng nhập Google. Kiểm tra SHA-1 và Package Name.';
+        }
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Lỗi đăng nhập Google: $e')),
+          SnackBar(content: Text(errorMsg), backgroundColor: Colors.redAccent),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

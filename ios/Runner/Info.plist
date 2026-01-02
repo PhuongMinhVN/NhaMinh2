@@ -49,5 +49,21 @@
 	<string>Ứng dụng cần truy cập Camera để quét mã QR gia nhập Dòng họ.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Ứng dụng cần quyền lưu ảnh để lưu mã khôi phục tài khoản và hình ảnh gia phả vào thư viện.</string>
+	<!-- Google Sign-In section -->
+	<key>GIDClientID</key>
+	<string>366728105944-8s49kkmus76mmfa5u6s5gf30o8qu04r8.apps.googleusercontent.com</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<!-- Copied from GoogleService-Info.plist key REVERSED_CLIENT_ID -->
+				<string>com.googleusercontent.apps.366728105944-8s49kkmus76mmfa5u6s5gf30o8qu04r8</string>
+			</array>
+		</dict>
+	</array>
+	<!-- End of the Google Sign-In section -->
 </dict>
 </plist>

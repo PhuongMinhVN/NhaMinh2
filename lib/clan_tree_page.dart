@@ -739,15 +739,25 @@ class _ClanTreePageState extends State<ClanTreePage> with SingleTickerProviderSt
                       _handleQrScan();
                    },
                  ),
-                 ListTile(
-                   leading: const Icon(Icons.edit_note, color: Colors.indigo),
-                   title: const Text('Nhập ID thành viên'),
-                   subtitle: const Text('Nhập mã ID thủ công'),
-                   onTap: () {
-                      Navigator.pop(ctx);
-                      _showEnterIdDialog();
-                   },
-                 ),
+                   ListTile(
+                     leading: const Icon(Icons.edit_note, color: Colors.indigo),
+                     title: const Text('Nhập ID thành viên'),
+                     subtitle: const Text('Nhập mã ID thủ công'),
+                     onTap: () {
+                        Navigator.pop(ctx);
+                        _showEnterIdDialog();
+                     },
+                   ),
+                   const Divider(),
+                   ListTile(
+                     leading: const Icon(Icons.person_add_alt_1, color: Colors.teal),
+                     title: const Text('Thêm thành viên thủ công'),
+                     subtitle: const Text('Tạo mới không cần tài khoản'),
+                     onTap: () {
+                        Navigator.pop(ctx);
+                        _showManualAddSheet(baseMember: baseMember);
+                     },
+                   ),
                 ],
              ),
           ),
@@ -756,8 +766,9 @@ class _ClanTreePageState extends State<ClanTreePage> with SingleTickerProviderSt
   }
 
   // Simplified Manual Add for Contextual Action
-  void _showManualAddSheet({required FamilyMember baseMember, required String relation}) {
+  void _showManualAddSheet({required FamilyMember baseMember, String relation = 'child'}) {
       final nameCtrl = TextEditingController();
+      String currentRelation = relation;
       String gender = 'male';
       String childType = 'biological'; // Default
       bool isAlive = true;
@@ -775,8 +786,43 @@ class _ClanTreePageState extends State<ClanTreePage> with SingleTickerProviderSt
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(relation == 'child' ? 'Thêm Con của ${baseMember.fullName}' : 'Thêm Vợ/Chồng của ${baseMember.fullName}', 
+                  Text('Thêm thành viên cho ${baseMember.fullName}', 
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  const SizedBox(height: 16),
+
+                  // RELATION SELECTOR
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                         const Text('Quan hệ: ', style: TextStyle(fontWeight: FontWeight.bold)),
+                         const SizedBox(width: 8),
+                         ChoiceChip(
+                           label: const Text('Con cái'), 
+                           selected: currentRelation == 'child',
+                           onSelected: (v) => setSheetState(() => currentRelation = 'child'),
+                         ),
+                         const SizedBox(width: 8),
+                         ChoiceChip(
+                           label: const Text('Cháu'), 
+                           selected: currentRelation == 'grandchild',
+                           onSelected: (v) => setSheetState(() => currentRelation = 'grandchild'),
+                         ),
+                         const SizedBox(width: 8),
+                         ChoiceChip(
+                           label: const Text('Vợ/Chồng'), 
+                           selected: currentRelation == 'spouse',
+                           onSelected: (v) => setSheetState(() => currentRelation = 'spouse'),
+                         ),
+                         const SizedBox(width: 8),
+                         ChoiceChip(
+                           label: const Text('Bố/Mẹ'), 
+                           selected: currentRelation == 'parent',
+                           onSelected: (v) => setSheetState(() => currentRelation = 'parent'),
+                         ),
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: 16),
                   
                   TextField(
@@ -787,15 +833,14 @@ class _ClanTreePageState extends State<ClanTreePage> with SingleTickerProviderSt
                   const SizedBox(height: 12),
                   
                   // Relationship Type (Only for Child)
-                  if (relation == 'child') ...[
+                  if (currentRelation == 'child') ...[
                     const Text('Loại quan hệ:', style: TextStyle(fontWeight: FontWeight.bold)),
                     DropdownButtonFormField<String>(
-                      value: 'biological',
+                      value: childType,
                       items: const [
                         DropdownMenuItem(value: 'biological', child: Text('Con Ruột')),
                         DropdownMenuItem(value: 'adopted', child: Text('Con Nuôi')),
                         DropdownMenuItem(value: 'step', child: Text('Con Riêng (Vợ/Chồng)')),
-                        DropdownMenuItem(value: 'grandchild', child: Text('Là Cháu (Cháu nội/ngoại)')),
                       ],
                       onChanged: (v) {
                          if (v != null) setSheetState(() => childType = v);
@@ -804,6 +849,37 @@ class _ClanTreePageState extends State<ClanTreePage> with SingleTickerProviderSt
                       onSaved: (v) {}, 
                     ),
                     const SizedBox(height: 12),
+                  ],
+
+                  // Grandchild Options
+                  if (currentRelation == 'grandchild') ...[
+                     const Text('Phân loại cháu:', style: TextStyle(fontWeight: FontWeight.bold)),
+                     const SizedBox(height: 8),
+                     Row(
+                       children: [
+                         Expanded(
+                           child: RadioListTile<String>(
+                             title: const Text('Cháu Nội'),
+                             subtitle: const Text('Con của con trai'),
+                             value: 'paternal',
+                             groupValue: childType, 
+                             contentPadding: EdgeInsets.zero,
+                             onChanged: (v) => setSheetState(() => childType = v!),
+                           ),
+                         ),
+                         Expanded(
+                           child: RadioListTile<String>(
+                             title: const Text('Cháu Ngoại'),
+                             subtitle: const Text('Con của con gái'),
+                             value: 'maternal',
+                             groupValue: childType,
+                             contentPadding: EdgeInsets.zero,
+                             onChanged: (v) => setSheetState(() => childType = v!),
+                           ),
+                         ),
+                       ],
+                     ),
+                     const SizedBox(height: 8),
                   ],
 
                   Row(
@@ -817,6 +893,7 @@ class _ClanTreePageState extends State<ClanTreePage> with SingleTickerProviderSt
                   ),
                   CheckboxListTile(
                     title: const Text('Còn sống?'),
+                    subtitle: isAlive ? null : const Text('Sẽ hiển thị ngày mất nếu có'),
                     value: isAlive, 
                     onChanged: (v) => setSheetState(() => isAlive = v!),
                     contentPadding: EdgeInsets.zero,
@@ -829,29 +906,60 @@ class _ClanTreePageState extends State<ClanTreePage> with SingleTickerProviderSt
                       onPressed: () async {
                          if (nameCtrl.text.isEmpty) return;
                          
+                         int genLevel = baseMember.generationLevel ?? 1;
+                         if (currentRelation == 'child') genLevel += 1;
+                         if (currentRelation == 'grandchild') genLevel += 2;
+                         if (currentRelation == 'parent') genLevel -= 1;
+
                          final Map<String, dynamic> data = {
                            'clan_id': widget.clanId,
                            'full_name': nameCtrl.text.trim(),
                            'gender': gender,
                            'is_alive': isAlive,
-                           'generation_level': (baseMember.generationLevel ?? 1) + (relation == 'child' ? 1 : 0),
-                           // Add new fields
-                           'child_type': relation == 'child' ? childType : null,
-                           // 'role_label': roleLabelCtrl.text.isNotEmpty ? roleLabelCtrl.text.trim() : null,
+                           'generation_level': genLevel,
                          };
                          
-                         if (relation == 'child') {
-                            if (baseMember.gender == 'male') {
-                               data['father_id'] = baseMember.id;
-                            } else {
-                               data['mother_id'] = baseMember.id;
-                            }
-                         } else {
-                            data['spouse_id'] = baseMember.id;
+                         // Handle Grandchild specific logic (is_maternal)
+                         if (currentRelation == 'child') {
+                               data['child_type'] = childType; // bio/adopted/step
+                               if (baseMember.gender == 'male') {
+                                  data['father_id'] = baseMember.id;
+                               } else {
+                                  data['mother_id'] = baseMember.id;
+                               }
+                         } else if (currentRelation == 'grandchild') {
+                               // Save specific type for SQL
+                               data['child_type'] = childType; // 'paternal' or 'maternal' - WAIT, value is just 'paternal'/'maternal' in radio?
+                               // Check Radio values above: 'paternal', 'maternal'
+                               // We want 'grandchild_paternal', 'grandchild_maternal'
+                               
+                               if (childType == 'maternal') {
+                                 data['child_type'] = 'grandchild_maternal';
+                                 data['is_maternal'] = true;
+                               } else {
+                                 data['child_type'] = 'grandchild_paternal';
+                                 data['is_maternal'] = false;
+                               }
+                               
+                               if (baseMember.gender == 'male') {
+                                  data['father_id'] = baseMember.id;
+                               } else {
+                                  data['mother_id'] = baseMember.id;
+                               }
+                         } else if (currentRelation == 'spouse') {
+                               data['spouse_id'] = baseMember.id;
                          }
+                         // Parent logic handled after insert
 
                          try {
-                            await Supabase.instance.client.from('family_members').insert(data);
+                            final res = await Supabase.instance.client.from('family_members').insert(data).select().single();
+                            final newMemberId = res['id'];
+
+                            if (currentRelation == 'parent') {
+                               final updateData = gender == 'male' ? {'father_id': newMemberId} : {'mother_id': newMemberId};
+                               await Supabase.instance.client.from('family_members').update(updateData).eq('id', baseMember.id);
+                            }
+
                             Navigator.pop(ctx);
                             _fetchMembers();
                             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã thêm thành viên!'), backgroundColor: Colors.green));

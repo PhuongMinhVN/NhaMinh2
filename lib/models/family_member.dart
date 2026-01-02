@@ -25,6 +25,7 @@ class FamilyMember {
   final bool isMaternal; // NEW: Bên ngoại
   final int? birthOrder; // NEW: Con thứ mấy (1, 2, 3...)
   final String clanRole; // 'owner', 'admin', 'member'
+  final String? childType; // NEW: biological, adopted, grandchild_paternal...
 
   // Runtime helper
   FamilyMember? spouse;
@@ -57,6 +58,7 @@ class FamilyMember {
     this.isMaternal = false,
     this.birthOrder,
     this.clanRole = 'member',
+    this.childType,
   });
 
   factory FamilyMember.fromJson(Map<String, dynamic> json) {
@@ -87,6 +89,7 @@ class FamilyMember {
       isMaternal: json['is_maternal'] ?? false,
       birthOrder: json['birth_order'],
       clanRole: json['clan_role'] ?? 'member', // Default to member
+      childType: json['child_type'],
     );
   }
 
@@ -116,6 +119,7 @@ class FamilyMember {
       'is_maternal': isMaternal,
       'birth_order': birthOrder,
       'clan_role': clanRole,
+      'child_type': childType, // NEW
     };
   }
 }

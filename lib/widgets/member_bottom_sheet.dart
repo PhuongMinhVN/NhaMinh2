@@ -39,6 +39,12 @@ class _MemberBottomSheetState extends State<MemberBottomSheet> {
   bool _isLoading = false;
   bool _isMe = false;
 
+  // Editing State
+  int? _editFatherId;
+  int? _editMotherId;
+  int? _editSpouseId;
+  String? _editChildType;
+
   @override
   void initState() {
     super.initState();
@@ -53,6 +59,12 @@ class _MemberBottomSheetState extends State<MemberBottomSheet> {
       _isMaternal = m.isMaternal;
       _birthOrder = m.birthOrder;
       _isMe = m.profileId == Supabase.instance.client.auth.currentUser?.id;
+
+      // Init Editing Relations
+      _editFatherId = m.fatherId;
+      _editMotherId = m.motherId;
+      _editSpouseId = m.spouseId;
+      _editChildType = m.childType;
 
       if (m.fatherId != null) {
         _selectedRelatedMemberId = m.fatherId;
@@ -104,6 +116,7 @@ class _MemberBottomSheetState extends State<MemberBottomSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // ... Header ...
               Row(
                 children: [
                   Icon(isEditing ? Icons.edit : Icons.person_add_alt_1, color: const Color(0xFF8B1A1A)),
@@ -199,7 +212,6 @@ class _MemberBottomSheetState extends State<MemberBottomSheet> {
                       // Common Birth Order Titles
                       ...['Con Cả', 'Trưởng Nữ', 'Con thứ 2', 'Con thứ 3', 'Con thứ 4', 'Con thứ 5']
                          .map((t) => DropdownMenuItem(value: t, child: Text(t))),
-                      // If current title is weird/custom (e.g. "Con thứ 13"), add it
                       if (_title != null && 
                           !['Trưởng họ', 'Đích tôn', 'Phó họ', 'Chi trưởng', 'Chi phó', 'Trưởng Nhà', 'Phó Nhà', 
                             'Con Cả', 'Trưởng Nữ', 'Con thứ 2', 'Con thứ 3', 'Con thứ 4', 'Con thứ 5'].contains(_title))
@@ -222,7 +234,89 @@ class _MemberBottomSheetState extends State<MemberBottomSheet> {
                  const SizedBox(height: 16),
               ],
 
-              if (!isRootInit) ...[
+              // ---------------------------------------------------------
+              // EDIT MODE: Explicit Relationship Editing
+              // ---------------------------------------------------------
+              if (isEditing) ...[
+                 const Divider(thickness: 1, height: 32),
+                 const Text('Chỉnh sửa quan hệ gia đình', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blueGrey)),
+                 const SizedBox(height: 16),
+
+                 // Father
+                 DropdownButtonFormField<int>(
+                   value: _editFatherId,
+                   decoration: const InputDecoration(labelText: 'Cha (Bố)', border: OutlineInputBorder()),
+                   items: [
+                     const DropdownMenuItem(value: null, child: Text('Chưa rõ / Không có')),
+                     ...widget.existingMembers
+                        .where((m) => m.id != widget.memberToEdit!.id && m.gender == 'male')
+                        .map((m) => DropdownMenuItem(value: m.id, child: Text(m.fullName))),
+                   ],
+                   onChanged: (v) => setState(() => _editFatherId = v),
+                 ),
+                 const SizedBox(height: 12),
+
+                 // Mother
+                 DropdownButtonFormField<int>(
+                   value: _editMotherId,
+                   decoration: const InputDecoration(labelText: 'Mẹ', border: OutlineInputBorder()),
+                   items: [
+                     const DropdownMenuItem(value: null, child: Text('Chưa rõ / Không có')),
+                     ...widget.existingMembers
+                        .where((m) => m.id != widget.memberToEdit!.id && m.gender != 'male')
+                        .map((m) => DropdownMenuItem(value: m.id, child: Text(m.fullName))),
+                   ],
+                   onChanged: (v) => setState(() => _editMotherId = v),
+                 ),
+                 const SizedBox(height: 12),
+
+                 // Spouse
+                 DropdownButtonFormField<int>(
+                   value: _editSpouseId,
+                   decoration: const InputDecoration(labelText: 'Vợ / Chồng', border: OutlineInputBorder()),
+                   items: [
+                     const DropdownMenuItem(value: null, child: Text('Độc thân / Không có')),
+                     ...widget.existingMembers
+                        .where((m) => m.id != widget.memberToEdit!.id) // Allow any gender for flexibility or filter strictly? Let's allow any for now or strictly opposite?
+                        // .where((m) => m.gender != _gender) // Strict opposite gender check? Maybe explicit is better.
+                        .map((m) => DropdownMenuItem(value: m.id, child: Text(m.fullName))),
+                   ],
+                   onChanged: (v) => setState(() => _editSpouseId = v),
+                 ),
+                 const SizedBox(height: 12),
+
+                 // Child Type
+                 DropdownButtonFormField<String>(
+                   value: _editChildType,
+                   decoration: const InputDecoration(labelText: 'Loại quan hệ (Child Type)', border: OutlineInputBorder()),
+                   items: const [
+                      DropdownMenuItem(value: null, child: Text('Mặc định (Con ruột)')),
+                      DropdownMenuItem(value: 'biological', child: Text('Con Ruột')),
+                      DropdownMenuItem(value: 'adopted', child: Text('Con Nuôi')),
+                      DropdownMenuItem(value: 'step', child: Text('Con Riêng (Vợ/Chồng)')),
+                      DropdownMenuItem(value: 'grandchild_paternal', child: Text('Cháu Nội')),
+                      DropdownMenuItem(value: 'grandchild_maternal', child: Text('Cháu Ngoại')),
+                   ],
+                   onChanged: (v) => setState(() => _editChildType = v),
+                 ),
+                 const SizedBox(height: 12),
+                 
+                 DropdownButtonFormField<int>(
+                    value: _birthOrder,
+                    decoration: const InputDecoration(labelText: 'Thứ bậc (Con thứ mấy)', border: OutlineInputBorder()),
+                    items: List.generate(20, (index) => index + 1).map((i) => DropdownMenuItem(
+                       value: i,
+                       child: Text('Con thứ $i'),
+                    )).toList(), // .prepend(null)?
+                    onChanged: (v) => setState(() => _birthOrder = v),
+                 ),
+
+              ],
+
+              // ---------------------------------------------------------
+              // ADD MODE: Contextual Relationship Selector
+              // ---------------------------------------------------------
+              if (!isEditing && !isRootInit) ...[
                 const Text('Mối quan hệ (Bắt buộc)', style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
 
@@ -307,13 +401,9 @@ class _MemberBottomSheetState extends State<MemberBottomSheet> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    // Custom Validation
-    // Removed mandatory birth date check as per user request
-    if (_relationshipMode == 'sibling' && _selectedRelatedMemberId == null) {
-       // Should be caught by validator but double check
-    }
     
-    if (widget.existingMembers.isNotEmpty && _selectedRelatedMemberId == null) {
+    // Validation for Add Mode
+    if (widget.memberToEdit == null && widget.existingMembers.isNotEmpty && _selectedRelatedMemberId == null) {
        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Vui lòng chọn mối quan hệ với thành viên khác')));
        return;
     }
@@ -335,26 +425,37 @@ class _MemberBottomSheetState extends State<MemberBottomSheet> {
         'profile_id': _isMe ? Supabase.instance.client.auth.currentUser?.id : (widget.memberToEdit?.profileId == Supabase.instance.client.auth.currentUser?.id ? null : widget.memberToEdit?.profileId),
       };
 
-      if (_selectedRelatedMemberId != null) {
-          final related = widget.existingMembers.firstWhere((m) => m.id == _selectedRelatedMemberId);
-          
-          if (_relationshipMode == 'child') { 
-             if (related.gender == 'male') {
-               data['father_id'] = related.id;
-               data['mother_id'] = related.spouseId; // Try to link mother if known
-             } else {
-               data['mother_id'] = related.id;
-               data['father_id'] = related.spouseId;
-             }
-          } else if (_relationshipMode == 'sibling') {
-             // Sibling Mode: Inherit parents
-             data['father_id'] = related.fatherId;
-             data['mother_id'] = related.motherId;
-          } else if (_relationshipMode == 'spouse') {
-             // Spouse Mode: Set spouse_id (if column exists)
-             // We will also update the Other person later
-             data['spouse_id'] = related.id;
+      // ADD MODE LOGIC
+      if (widget.memberToEdit == null) {
+          if (_selectedRelatedMemberId != null) {
+              final related = widget.existingMembers.firstWhere((m) => m.id == _selectedRelatedMemberId);
+              
+              if (_relationshipMode == 'child') { 
+                if (related.gender == 'male') {
+                  data['father_id'] = related.id;
+                  data['mother_id'] = related.spouseId; // Try to link mother if known
+                } else {
+                  data['mother_id'] = related.id;
+                  data['father_id'] = related.spouseId;
+                }
+              } else if (_relationshipMode == 'sibling') {
+                // Sibling Mode: Inherit parents
+                data['father_id'] = related.fatherId;
+                data['mother_id'] = related.motherId;
+              } else if (_relationshipMode == 'spouse') {
+                // Spouse Mode: Set spouse_id (if column exists)
+                // We will also update the Other person later
+                data['spouse_id'] = related.id;
+              }
           }
+      } 
+      // EDIT MODE LOGIC
+      else {
+         // Use the explicit values from Edit section
+         data['father_id'] = _editFatherId;
+         data['mother_id'] = _editMotherId;
+         data['spouse_id'] = _editSpouseId;
+         data['child_type'] = _editChildType;
       }
       
       if (widget.memberToEdit != null) {
@@ -363,11 +464,13 @@ class _MemberBottomSheetState extends State<MemberBottomSheet> {
             .update(data)
             .eq('id', widget.memberToEdit!.id);
             
-        // Post-update: If we set them as PARENT of selected member
-        if (_selectedRelatedMemberId != null && _relationshipMode == 'parent') {
-            final updateData = _gender == 'male' ? {'father_id': widget.memberToEdit!.id} : {'mother_id': widget.memberToEdit!.id};
-            await Supabase.instance.client.from('family_members').update(updateData).eq('id', _selectedRelatedMemberId!);
+        // No auto-link updates needed for pure editing usually, unless we want to enforce consistency?
+        // E.g. if I set Spouse = X, should I set X's spouse = ME?
+        // Yes, for robustness.
+        if (_editSpouseId != null) {
+           await Supabase.instance.client.from('family_members').update({'spouse_id': widget.memberToEdit!.id}).eq('id', _editSpouseId!);
         }
+
       } else {
         final res = await Supabase.instance.client.from('family_members').insert(data).select().single();
         final newMemberId = res['id'];

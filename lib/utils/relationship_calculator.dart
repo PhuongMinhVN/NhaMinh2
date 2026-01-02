@@ -28,43 +28,61 @@ class RelationshipCalculator {
   /// Example: If A is father of B. 
   /// call(A, B) -> Title of A to B (Dad).
   /// call(B, A) -> Title of B to A (Son).
+
+
   static String getTitle(FamilyMember target, FamilyMember viewer, List<FamilyMember> allMembers) {
-    // 1. Check Direct Blood Relationship
+     // 0. Self check
+     if (target.id == viewer.id) return 'Bản thân';
+
+     // 1. Check Direct Blood Relationship
     final bloodTitle = getBloodTitle(target, viewer, allMembers);
-    if (!bloodTitle.startsWith('Người trong họ') && !bloodTitle.startsWith('Unknown')) {
+    if (!bloodTitle.startsWith('Người trong họ') && !bloodTitle.startsWith('Họ hàng') && !bloodTitle.startsWith('Unknown')) {
        return bloodTitle;
     }
 
-    // 2. Check In-Law Relationship (Target is Spouse of Blood Relative)
-    // Find who is the Spouse of Target?
+    // 2. Check In-Law (Target is Spouse of My Relative)
+    // ... Existing logic ...
     try {
-      // Case A: Target has 'spouseId' pointing to a blood relative
-      // Case B: A blood relative has 'spouseId' pointing to Target
-      // Simplified: Find any member in allMembers who is Spouse of Target AND is blood related to Viewer
-      
-      FamilyMember? spouse;
-      // Check if Target's spouse is defined
+      FamilyMember? spouseOfTarget;
       if (target.spouseId != null) {
-         spouse = allMembers.firstWhere((m) => m.id == target.spouseId, orElse: () => FamilyMember(id: -1, fullName: '', isAlive: true));
+         spouseOfTarget = allMembers.firstWhere((m) => m.id == target.spouseId, orElse: () => FamilyMember(id: -1, fullName: '', isAlive: true));
       } 
-      
-      // Double check: Look for anyone pointing TO target
-      if (spouse == null || spouse.id == -1) {
-         spouse = allMembers.firstWhere((m) => m.spouseId == target.id, orElse: () => FamilyMember(id: -1, fullName: '', isAlive: true));
+      if (spouseOfTarget == null || spouseOfTarget.id == -1) {
+         spouseOfTarget = allMembers.firstWhere((m) => m.spouseId == target.id, orElse: () => FamilyMember(id: -1, fullName: '', isAlive: true));
       }
 
-      if (spouse != null && spouse.id != -1) {
-         // Is Spouse blood related?
-         final spouseTitle = getBloodTitle(spouse, viewer, allMembers);
-         if (!spouseTitle.startsWith('Người trong họ') && !spouseTitle.startsWith('Unknown')) {
-             return _getInLawTitle(spouseTitle, target.gender ?? 'female'); // Infer in-law title
+      if (spouseOfTarget != null && spouseOfTarget.id != -1) {
+         final spouseTitle = getBloodTitle(spouseOfTarget, viewer, allMembers);
+         if (!spouseTitle.startsWith('Người trong họ') && !spouseTitle.startsWith('Họ hàng') && !spouseTitle.startsWith('Unknown')) {
+             return _getInLawTitle(spouseTitle, target.gender ?? 'female'); 
          }
       }
     } catch (e) {
       // ignore
     }
 
-    return bloodTitle; // Fallback to generic
+    // 3. Check Reverse In-Law (I am Spouse of Target's Relative)
+    // i.e. Target is Relative of My Spouse
+    try {
+       FamilyMember? mySpouse;
+       if (viewer.spouseId != null) {
+          mySpouse = allMembers.firstWhere((m) => m.id == viewer.spouseId, orElse: () => FamilyMember(id: -1, fullName: '', isAlive: true));
+       }
+       if (mySpouse == null || mySpouse.id == -1) {
+          mySpouse = allMembers.firstWhere((m) => m.spouseId == viewer.id, orElse: () => FamilyMember(id: -1, fullName: '', isAlive: true));
+       }
+
+       if (mySpouse != null && mySpouse.id != -1) {
+           final titleRelativeToSpouse = getBloodTitle(target, mySpouse, allMembers);
+           if (!titleRelativeToSpouse.startsWith('Người trong họ') && !titleRelativeToSpouse.startsWith('Họ hàng') && !titleRelativeToSpouse.startsWith('Unknown')) {
+               return _getSpouseRelativeTitle(titleRelativeToSpouse, mySpouse.gender ?? 'male', target.gender ?? 'male');
+           }
+       }
+    } catch (e) {
+       // ignore
+    }
+
+    return bloodTitle;
   }
 
   static String getBloodTitle(FamilyMember target, FamilyMember viewer, List<FamilyMember> allMembers) {
@@ -326,13 +344,24 @@ class RelationshipCalculator {
     final t = bloodTitle.toLowerCase();
     final isMaleTarget = targetGender == 'male';
 
+    if (t == 'bản thân') return isMaleTarget ? 'Chồng' : 'Vợ';
+
+    if (t == 'cha') return isMaleTarget ? 'Cha (Dượng)' : 'Mẹ';
+    if (t == 'mẹ') return isMaleTarget ? 'Cha (Dượng)' : 'Mẹ (Kế)'; // Often just Cha/Me depending on preference
+    
+    if (t == 'ông nội') return 'Bà nội';
+    if (t == 'bà nội') return 'Ông nội';
+    
+    if (t == 'ông ngoại') return 'Bà ngoại';
+    if (t == 'bà ngoại') return 'Ông ngoại';
+
     if (t.contains('con gái')) return 'Con rể';
     if (t.contains('con trai')) return 'Con dâu';
     
     if (t.contains('chị gái') || t.contains('chị họ')) return 'Anh rể';
     if (t.contains('em gái') || t.contains('em họ')) return 'Em rể';
     
-    if (t.contains('anh trai') || t.contains('anh họ')) return 'Chị đâu';
+    if (t.contains('anh trai') || t.contains('anh họ')) return 'Chị dâu';
     if (t.contains('em trai') || t.contains('em họ')) return 'Em dâu';
 
     if (t.contains('bác')) return isMaleTarget ? 'Bác trai (Dượng)' : 'Bác gái';
@@ -340,7 +369,39 @@ class RelationshipCalculator {
     if (t.contains('cô')) return 'Chú (Dượng)';
     if (t.contains('dì')) return 'Chú (Dượng)';
     if (t.contains('cậu')) return 'Mợ';
+    if (t.contains('cậu')) return 'Mợ';
+
+    if (t.contains('cậu')) return 'Mợ';
 
     return 'Họ hàng (Dâu/Rể)';
+  }
+
+  static String _getSpouseRelativeTitle(String titleRelativeToSpouse, String spouseGender, String targetGender) {
+      final t = titleRelativeToSpouse.toLowerCase();
+      final isHusband = spouseGender == 'male';
+      // final isMaleTarget = targetGender == 'male';
+
+      // Parents
+      if (t == 'cha' || t == 'bố') return isHusband ? 'Bố chồng' : 'Bố vợ';
+      if (t == 'mẹ') return isHusband ? 'Mẹ chồng' : 'Mẹ vợ';
+      
+      // Grandparents
+      if (t == 'ông nội') return isHusband ? 'Ông nội chồng' : 'Ông nội vợ';
+      if (t == 'bà nội') return isHusband ? 'Bà nội chồng' : 'Bà nội vợ';
+      if (t == 'ông ngoại') return isHusband ? 'Ông ngoại chồng' : 'Ông ngoại vợ';
+      if (t == 'bà ngoại') return isHusband ? 'Bà ngoại chồng' : 'Bà ngoại vợ';
+
+      // Siblings
+      if (t == 'anh trai') return isHusband ? 'Anh chồng' : 'Anh vợ';
+      if (t == 'em trai') return isHusband ? 'Em chồng' : 'Em vợ/Cậu';
+      if (t == 'chị gái') return isHusband ? 'Chị chồng' : 'Chị vợ';
+      if (t == 'em gái') return isHusband ? 'Em chồng' : 'Em vợ/Dì';
+      
+      // Uncles/Aunts
+      if (t.contains('bác')) return 'Bác (Chồng/Vợ)';
+      if (t.contains('chú')) return 'Chú (Chồng/Vợ)';
+      if (t.contains('cô')) return 'Cô (Chồng/Vợ)';
+      
+      return '$titleRelativeToSpouse (Chồng/Vợ)';
   }
 }

@@ -5,11 +5,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'login_page.dart';
 import 'dashboard_page.dart';
+import 'auth_gate.dart';
 import 'dart:ui'; // For PointerDeviceKind
 
 // --- CẤU HÌNH KẾT NỐI (Từ thông tin bạn cung cấp) ---
 const String DEFAULT_PROJECT_URL = 'https://dpfyflwxvbvnckctwhyd.supabase.co';
 const String DEFAULT_API_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRwZnlmbHd4dmJ2bmNrY3R3aHlkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY4NzA5OTQsImV4cCI6MjA4MjQ0Njk5NH0.MzofJ4bPDZLqmD9x9tf5fjgEqvTjpZwYNLBR_aq5EVA';
+// [USER CONFIG] Thay thế bằng Web Client ID từ Google Cloud Console (Dành cho Android/iOS login)
+const String GOOGLE_WEB_CLIENT_ID = '366728105944-drv6g7b6ehpo2mna7hh2qutk8fgsc5ut.apps.googleusercontent.com';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -98,9 +101,7 @@ class GiaPhaApp extends StatelessWidget {
           ),
         ),
       ),
-      home: Supabase.instance.client.auth.currentUser != null 
-          ? const DashboardPage() 
-          : const LoginPage(),
+      home: const AuthGate(),
     );
   }
 }
